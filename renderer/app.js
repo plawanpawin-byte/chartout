@@ -403,16 +403,16 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
 
 // ---------- files ----------
-function newDoc() { if (doc.shapes.length && !confirm('Discard the current diagram?')) return; doc = { shapes: [], edges: [], title: 'Untitled' }; sel.clear(); undoS = []; redoS = []; fileName = ''; fit(); render(); }
+function newDoc() { if (doc.shapes.length && !confirm('Discard the current diagram?')) return; doc = { shapes: [], edges: [], title: 'Untitled' }; sel.clear(); undoS = []; savedSnap = snapshot(); redoS = []; fileName = ''; fit(); render(); }
 async function openDoc() {
   const f = (await window.host.openFiles({ filters: [['Chartout diagram', ['chartout', 'json']]] }))[0]; if (!f) return;
-  try { const d = JSON.parse(new TextDecoder().decode(f.data)); if (!Array.isArray(d.shapes) || !Array.isArray(d.edges)) throw new Error('Not a Chartout file'); doc = { title: String(d.title || 'Untitled'), shapes: d.shapes.map(cleanShape), edges: d.edges }; fileName = f.name; sel.clear(); undoS = []; fit(); render(); }
+  try { const d = JSON.parse(new TextDecoder().decode(f.data)); if (!Array.isArray(d.shapes) || !Array.isArray(d.edges)) throw new Error('Not a Chartout file'); doc = { title: String(d.title || 'Untitled'), shapes: d.shapes.map(cleanShape), edges: d.edges }; fileName = f.name; sel.clear(); undoS = []; savedSnap = snapshot(); fit(); render(); }
   catch (e) { toast('Cannot open: ' + e.message); }
 }
 const cleanShape = (s) => ({ id: String(s.id), type: SHAPES.some((x) => x[0] === s.type) ? s.type : 'process', x: +s.x || 0, y: +s.y || 0, w: Math.max(10, +s.w || 100), h: Math.max(10, +s.h || 60), text: String(s.text || ''), fill: /^#[0-9a-f]{6}$/i.test(s.fill) ? s.fill : 'none', stroke: /^#[0-9a-f]{6}$/i.test(s.stroke) ? s.stroke : '#3a3a3a', fs: clamp(+s.fs || 14, 6, 96) });
 async function saveDoc() {
   const r = await window.host.saveFile({ name: (doc.title || 'diagram') + '.chartout', filters: [['Chartout diagram', ['chartout']]], data: new TextEncoder().encode(JSON.stringify(doc, null, 1)) });
-  if (r) { fileName = r.name; toast('Saved ' + r.name); renderStatus(); }
+  if (r) { savedSnap = snapshot(); fileName = r.name; toast('Saved ' + r.name); renderStatus(); }
 }
 function exportSvgString() {
   const b = doc.shapes.length ? bounds(doc.shapes) : { x: 0, y: 0, w: 200, h: 100 }; const pad = 30;
@@ -483,3 +483,7 @@ function openTemplates() {
 render();
 setTimeout(fit, 30);
 window.addEventListener('resize', () => applyView());
+
+let savedSnap = null;
+setTimeout(() => { if (savedSnap === null) savedSnap = snapshot(); }, 0);
+window.addEventListener('beforeunload', (e) => { if (savedSnap !== null && snapshot() !== savedSnap) { e.preventDefault(); e.returnValue = ''; } });
