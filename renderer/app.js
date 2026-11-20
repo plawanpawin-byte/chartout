@@ -209,10 +209,10 @@ function edgePath(e) {
     const my = vgap > 0 ? (cb.y > ca.y ? (a.y + a.h + b.y) / 2 : (b.y + b.h + a.y) / 2) : (ca.y + cb.y) / 2;
     const mid = horiz ? [{ x: mx, y: ca.y }, { x: mx, y: cb.y }] : [{ x: ca.x, y: my }, { x: cb.x, y: my }];
     const p0 = edgePoint(a, mid[0]), p3 = edgePoint(b, mid[1]);
-    return { d: `M${p0.x} ${p0.y}L${mid[0].x} ${mid[0].y}L${mid[1].x} ${mid[1].y}L${p3.x} ${p3.y}`, label: { x: (mid[0].x + mid[1].x) / 2, y: (mid[0].y + mid[1].y) / 2 } };
+    return { d: `M${p0.x} ${p0.y}L${mid[0].x} ${mid[0].y}L${mid[1].x} ${mid[1].y}L${p3.x} ${p3.y}`, label: (mid[0].x === mid[1].x && mid[0].y === mid[1].y) || Math.hypot(mid[1].x - mid[0].x, mid[1].y - mid[0].y) > 24 ? { x: (mid[0].x + mid[1].x) / 2, y: (mid[0].y + mid[1].y) / 2 } : { x: (mid[1].x + p3.x) / 2, y: (mid[1].y + p3.y) / 2 } };
   }
   const p0 = edgePoint(a, cb), p1 = edgePoint(b, ca);
-  return { d: `M${p0.x} ${p0.y}L${p1.x} ${p1.y}`, label: { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 } };
+  return { d: `M${p0.x} ${p0.y}L${p1.x} ${p1.y}`, label: { x: p0.x + (p1.x - p0.x) * 0.85, y: p0.y + (p1.y - p0.y) * 0.85 } };
 }
 
 // ---------- render ----------
