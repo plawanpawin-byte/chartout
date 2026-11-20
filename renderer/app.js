@@ -385,6 +385,7 @@ svg.addEventListener('dblclick', (ev) => {
 svg.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = svg.getBoundingClientRect(); if (ev.ctrlKey || ev.metaKey) zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top); else { panX -= ev.deltaX; panY -= ev.deltaY; applyView(); } }, { passive: false });
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input,textarea')) return;
+  if (document.querySelector('.modal-back') || (!e.ctrlKey && !e.metaKey && e.target.matches('select,button,[contenteditable]'))) return;
   const k = e.key.toLowerCase();
   if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
   else if (e.key === 'Delete' || e.key === 'Backspace') del();
