@@ -23,6 +23,16 @@ const SHAPES = [
   ['ellipse', 'Ellipse'], ['document', 'Document'], ['database', 'Database'], ['subprocess', 'Subprocess'], ['note', 'Note'],
   ['actor', 'Actor'], ['cloud', 'Cloud'], ['hexagon', 'Hexagon'], ['triangle', 'Triangle'], ['star', 'Star'], ['text', 'Text'],
 ];
+const LIBS = [
+  ['Flowchart', SHAPES.map((x) => x.slice())],
+  ['UML', [['class', 'Class'], ['interface', 'Interface'], ['package', 'Package'], ['component', 'Component'], ['usecase', 'Use case'], ['lifeline', 'Lifeline'], ['activation', 'Activation'], ['state', 'State']]],
+  ['Network', [['server', 'Server'], ['router', 'Router'], ['netswitch', 'Switch'], ['firewall', 'Firewall'], ['laptop', 'Laptop']]],
+  ['Circuit', [['resistor', 'Resistor'], ['capacitor', 'Capacitor'], ['inductor', 'Inductor'], ['battery', 'Battery'], ['diode', 'Diode'], ['ground', 'Ground'], ['cswitch', 'Switch']]],
+];
+LIBS.slice(1).forEach(([, l]) => l.forEach((x) => SHAPES.push(x)));
+const SIZES = { actor: [60, 90], text: [120, 40], class: [150, 110], interface: [150, 80], package: [150, 100], component: [140, 70], usecase: [150, 70], lifeline: [110, 220], activation: [16, 90], state: [130, 70], server: [70, 90], router: [80, 80], netswitch: [100, 50], firewall: [90, 80], laptop: [100, 70], resistor: [90, 36], capacitor: [60, 50], inductor: [100, 36], battery: [60, 50], diode: [90, 40], ground: [40, 40], cswitch: [90, 40] };
+const LABEL_BELOW = new Set(['server', 'router', 'netswitch', 'firewall', 'laptop', 'resistor', 'capacitor', 'inductor', 'battery', 'diode', 'ground', 'cswitch']);
+const HEADER_TEXT = { class: 0.17, interface: 0.2, lifeline: 0.07, package: 0.3, state: 0.2 };
 const FILLS = ['#ffffff', '#e6e6e6', '#c4c4c4', '#8f8f8f', '#555555', '#262626', '#dfe6ec', '#e8e2d4', '#dde8dd', '#ecdcdc'];
 let doc = { shapes: [], edges: [], title: 'Untitled' };
 let sel = new Set();          // ids (shapes or edges)
@@ -51,7 +61,7 @@ const btn = (label, fn, cls = '') => h('button', { class: 'btn ' + cls, onclick:
 const bSelect = btn('Select', () => setTool('select'));
 const bConn = btn('Connector', () => setTool('connect'));
 const bPan = btn('Hand', () => setTool('pan'));
-toolbar.append(btn('New', newDoc), btn('Open', openDoc), btn('Save', saveDoc, 'primary'), h('span', { class: 'sep' }), bSelect, bConn, bPan, h('span', { class: 'sep' }),
+toolbar.append(btn('New', newDoc), btn('Templates', openTemplates), btn('Open', openDoc), btn('Save', saveDoc, 'primary'), h('span', { class: 'sep' }), bSelect, bConn, bPan, h('span', { class: 'sep' }),
   btn('Undo', undo), btn('Redo', redo), h('span', { class: 'sep' }), btn('Copy', copy), btn('Paste', paste), btn('Duplicate', dupe), btn('Delete', del), h('span', { class: 'sep' }),
   btn('Front', () => order(1)), btn('Back', () => order(-1)), h('span', { class: 'sep' }),
   btn('-', () => zoomBy(1 / 1.2), 'icon'), btn('+', () => zoomBy(1.2), 'icon'), btn('Fit', fit), h('span', { class: 'grow' }),
@@ -60,16 +70,18 @@ function setTool(t) { tool = t; [[bSelect, 'select'], [bConn, 'connect'], [bPan,
 setTool('select');
 
 // left palette
-left.append(h('h3', { text: 'Shapes' }));
-const pal = h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6px' });
-SHAPES.forEach(([k, n]) => {
+LIBS.forEach(([gname, list]) => {
+left.append(h('h3', { text: gname }));
+const pal = h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px' });
+list.forEach(([k, n]) => {
   const prev = sv('svg', { viewBox: '0 0 60 40', width: 60, height: 40 });
-  prev.append(shapeEl({ type: k, x: 5, y: 5, w: 50, h: 30, fill: '#d0d0d0', stroke: '#8a8a8a', text: '', fs: 10 }, true));
+  prev.append(shapeEl({ type: k, x: 5, y: 5, w: 50, h: 30, preview: 1, fill: '#d0d0d0', stroke: '#8a8a8a', text: '', fs: 10 }, true));
   const c = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 6px;font-size:11px;height:auto', draggable: 'true', onclick: () => addShape(k) }, prev, h('span', { text: n }));
   c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'shape:' + k));
   pal.append(c);
 });
 left.append(pal);
+});
 left.append(h('h3', { text: 'Canvas' }),
   h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { grid = e.target.checked; render(); } }), 'Show grid'),
   h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { snap = e.target.checked; } }), 'Snap to grid'));
@@ -120,12 +132,38 @@ function shapeEl(s, preview = false) {
     case 'triangle': add('path', { d: `M${x + w / 2} ${y}L${x + w} ${y + hh}H${x}Z` }); break;
     case 'star': { const cx = x + w / 2, cy = y + hh / 2; const pts = []; for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.2 : 0.5; const a = -Math.PI / 2 + (i * Math.PI) / 5; pts.push(`${cx + Math.cos(a) * r * w * 2 * 0.5 * 1},${cy + Math.sin(a) * r * hh * 2 * 0.5}`); } add('polygon', { points: pts.join(' ') }); break; }
     case 'text': add('rect', { x, y, width: w, height: hh, fill: 'none', stroke: 'none' }); break;
+
+    case 'class': case 'interface': { add('rect', { x, y, width: w, height: hh }); const l1 = y + hh * 0.3; add('path', { d: `M${x} ${l1}H${x + w}` + (s.type === 'class' ? `M${x} ${y + hh * 0.62}H${x + w}` : ''), fill: 'none' }); break; }
+    case 'package': add('rect', { x, y, width: w * 0.4, height: Math.min(18, hh * 0.2) }); add('rect', { x, y: y + Math.min(18, hh * 0.2), width: w, height: hh - Math.min(18, hh * 0.2) }); break;
+    case 'component': add('rect', { x: x + 8, y, width: w - 8, height: hh }); add('rect', { x, y: y + hh * 0.25, width: 16, height: 9 }); add('rect', { x, y: y + hh * 0.6, width: 16, height: 9 }); break;
+    case 'usecase': add('ellipse', { cx: x + w / 2, cy: y + hh / 2, rx: w / 2, ry: hh / 2 }); break;
+    case 'lifeline': { const hd = Math.min(36, hh * 0.18); add('rect', { x, y, width: w, height: hd }); add('path', { d: `M${x + w / 2} ${y + hd}V${y + hh}`, fill: 'none', 'stroke-dasharray': '6 5' }); break; }
+    case 'activation': add('rect', { x, y, width: w, height: hh }); break;
+    case 'state': add('rect', { x, y, width: w, height: hh, rx: Math.min(18, hh / 3) }); add('path', { d: `M${x} ${y + hh * 0.38}H${x + w}`, fill: 'none' }); break;
+    case 'server': add('rect', { x: x + w * 0.1, y, width: w * 0.8, height: hh }); for (let i = 0; i < 3; i++) { add('path', { d: `M${x + w * 0.1} ${y + hh * (i + 1) / 4}H${x + w * 0.9}`, fill: 'none' }); add('circle', { cx: x + w * 0.24, cy: y + hh * (i + 0.5) / 4 + hh / 8 - hh / 8, r: 2, fill: s.stroke }); } break;
+    case 'router': { const cx = x + w / 2, cy = y + hh / 2, r = Math.min(w, hh) / 2; add('circle', { cx, cy, r }); add('path', { d: `M${cx - r * 0.6} ${cy}H${cx + r * 0.6}M${cx} ${cy - r * 0.6}V${cy + r * 0.6}M${cx + r * 0.6} ${cy}l-5 -4M${cx + r * 0.6} ${cy}l-5 4M${cx - r * 0.6} ${cy}l5 -4M${cx - r * 0.6} ${cy}l5 4M${cx} ${cy - r * 0.6}l-4 5M${cx} ${cy - r * 0.6}l4 5M${cx} ${cy + r * 0.6}l-4 -5M${cx} ${cy + r * 0.6}l4 -5`, fill: 'none' }); break; }
+    case 'netswitch': add('rect', { x, y: y + hh * 0.2, width: w, height: hh * 0.6, rx: 3 }); add('path', { d: `M${x + w * 0.15} ${y + hh * 0.4}H${x + w * 0.4}l-5 -4M${x + w * 0.4} ${y + hh * 0.4}l-5 4M${x + w * 0.85} ${y + hh * 0.6}H${x + w * 0.6}l5 -4M${x + w * 0.6} ${y + hh * 0.6}l5 4`, fill: 'none' }); break;
+    case 'firewall': { add('rect', { x, y, width: w, height: hh }); for (let i = 1; i < 4; i++) add('path', { d: `M${x} ${y + hh * i / 4}H${x + w}`, fill: 'none' }); for (let i = 0; i < 4; i++) { const o = i % 2 ? w * 0.25 : w * 0.5; add('path', { d: `M${x + o} ${y + hh * i / 4}V${y + hh * (i + 1) / 4}`, fill: 'none' }); if (i % 2) add('path', { d: `M${x + w * 0.75} ${y + hh * i / 4}V${y + hh * (i + 1) / 4}`, fill: 'none' }); } break; }
+    case 'laptop': add('rect', { x: x + w * 0.14, y, width: w * 0.72, height: hh * 0.72, rx: 3 }); add('path', { d: `M${x} ${y + hh}H${x + w}L${x + w * 0.9} ${y + hh * 0.72}H${x + w * 0.1}Z` }); break;
+    case 'resistor': case 'capacitor': case 'inductor': case 'battery': case 'diode': case 'ground': case 'cswitch': {
+      g.append(sv('rect', { x, y, width: w, height: hh, fill: 'transparent', stroke: 'none' }));
+      const m = y + hh / 2, c = { fill: 'none', 'stroke-linecap': 'round' }; let d = '';
+      if (s.type === 'resistor') { const a = x + w * 0.2, b = x + w * 0.8, n = 6, st = (b - a) / n; d = `M${x} ${m}H${a}`; for (let i = 0; i < n; i++) d += `L${a + st * (i + 0.5)} ${m + (i % 2 ? hh * 0.32 : -hh * 0.32)}`; d += `L${b} ${m}H${x + w}`; }
+      else if (s.type === 'capacitor') { const cx = x + w / 2; d = `M${x} ${m}H${cx - 5}M${cx - 5} ${y + 2}V${y + hh - 2}M${cx + 5} ${y + 2}V${y + hh - 2}M${cx + 5} ${m}H${x + w}`; }
+      else if (s.type === 'inductor') { const a = x + w * 0.15, b = x + w * 0.85, n = 4, r = (b - a) / n / 2; d = `M${x} ${m}H${a}`; for (let i = 0; i < n; i++) d += `a${r} ${r} 0 0 1 ${r * 2} 0`; d += `M${b} ${m}H${x + w}`; }
+      else if (s.type === 'battery') { const cx = x + w / 2; d = `M${x} ${m}H${cx - 6}M${cx - 6} ${y + 2}V${y + hh - 2}M${cx + 6} ${y + hh * 0.3}V${y + hh * 0.7}M${cx + 6} ${m}H${x + w}`; }
+      else if (s.type === 'diode') { const a = x + w * 0.35, b = x + w * 0.65; d = `M${x} ${m}H${a}M${a} ${y + 2}V${y + hh - 2}L${b} ${m}Z M${b} ${y + 2}V${y + hh - 2}M${b} ${m}H${x + w}`; }
+      else if (s.type === 'ground') { const cx = x + w / 2; d = `M${cx} ${y}V${y + hh * 0.4}M${x} ${y + hh * 0.4}H${x + w}M${x + w * 0.2} ${y + hh * 0.65}H${x + w * 0.8}M${x + w * 0.4} ${y + hh * 0.9}H${x + w * 0.6}`; }
+      else { d = `M${x} ${m}H${x + w * 0.25}L${x + w * 0.72} ${y + 3}M${x + w * 0.75} ${m}H${x + w}`; add('circle', { cx: x + w * 0.25, cy: m, r: 2.5, fill: s.stroke }); add('circle', { cx: x + w * 0.75, cy: m, r: 2.5, fill: s.stroke }); }
+      add('path', { d, ...c }); break; }
     default: add('rect', { x, y, width: w, height: hh });
   }
   if (s.text && !preview) {
-    const t = sv('text', { x: x + w / 2, y: y + hh / 2, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: textColor(s.fill, s.type), 'font-size': s.fs, 'font-family': 'Segoe UI, Arial, sans-serif', style: 'pointer-events:none' });
+    const below = LABEL_BELOW.has(s.type), hd = HEADER_TEXT[s.type];
+    const ty = below ? y + hh + s.fs * 0.9 : hd !== undefined ? y + Math.max(hh * hd, s.fs * 0.9 + 4) : y + hh / 2;
+    const t = sv('text', { x: x + w / 2, y: ty, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: below ? '#e4e4e4' : textColor(s.fill, s.type), 'font-size': s.fs, 'font-family': 'Segoe UI, Arial, sans-serif', style: 'pointer-events:none' });
     const lines = wrap(s.text, w - 12, s.fs);
-    lines.forEach((ln, i) => { const ts = sv('tspan', { x: x + w / 2, dy: i === 0 ? -((lines.length - 1) * s.fs * 1.2) / 2 : s.fs * 1.2 }); ts.textContent = ln || ' '; t.append(ts); });
+    lines.forEach((ln, i) => { const ts = sv('tspan', { x: x + w / 2, dy: i === 0 ? (below || hd !== undefined ? 0 : -((lines.length - 1) * s.fs * 1.2) / 2) : s.fs * 1.2 }); ts.textContent = ln || ' '; t.append(ts); });
     g.append(t);
   }
   return g;
@@ -156,7 +194,7 @@ function edgePoint(s, toward) {
   const c = centerOf(s); const dx = toward.x - c.x, dy = toward.y - c.y;
   if (!dx && !dy) return c;
   const hw = s.w / 2, hh = s.h / 2; let t;
-  if (s.type === 'ellipse' || s.type === 'actor') t = 1 / Math.sqrt((dx * dx) / (hw * hw) + (dy * dy) / (hh * hh));
+  if (s.type === 'ellipse' || s.type === 'actor' || s.type === 'usecase' || s.type === 'router') t = 1 / Math.sqrt((dx * dx) / (hw * hw) + (dy * dy) / (hh * hh));
   else if (s.type === 'decision') t = 1 / (Math.abs(dx) / hw + Math.abs(dy) / hh);
   else t = Math.min(hw / Math.abs(dx || 1e-9), hh / Math.abs(dy || 1e-9));
   return { x: c.x + dx * t, y: c.y + dy * t };
@@ -239,7 +277,8 @@ function addShape(type, x, y) {
   const r = svg.getBoundingClientRect();
   const cx = x ?? ((r.width / 2 - panX) / zoom - 60), cy = y ?? ((r.height / 2 - panY) / zoom - 35);
   commit();
-  const s = { id: uid(), type, x: sn(cx), y: sn(cy), w: type === 'text' ? 120 : type === 'actor' ? 60 : 120, h: type === 'text' ? 40 : type === 'actor' ? 90 : 70, text: type === 'text' ? 'Text' : '', fill: type === 'text' ? 'none' : style.fill, stroke: style.stroke, fs: style.fs };
+  const s = { id: uid(), type, x: sn(cx), y: sn(cy), w: (SIZES[type] || [120, 70])[0], h: (SIZES[type] || [120, 70])[1], text: type === 'text' ? 'Text' : '', fill: type === 'text' ? 'none' : style.fill, stroke: style.stroke, fs: style.fs };
+  if (type === 'class') s.text = 'ClassName'; if (type === 'state') s.text = 'State'; if (type === 'lifeline') s.text = 'Object'; if (type === 'package') s.text = 'package'; if (type === 'interface') s.text = '<<interface>>';
   doc.shapes.push(s); sel = new Set([s.id]); render();
 }
 function del() { if (!sel.size) return; commit(); doc.shapes = doc.shapes.filter((s) => !sel.has(s.id)); const ids = new Set(doc.shapes.map((s) => s.id)); doc.edges = doc.edges.filter((e) => !sel.has(e.id) && ids.has(e.from) && ids.has(e.to)); sel.clear(); render(); }
@@ -396,6 +435,40 @@ async function exportImg(kind) {
   const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
   const res = await window.host.saveFile({ name: (doc.title || 'diagram') + '.png', filters: [['PNG image', ['png']]], data: new Uint8Array(await blob.arrayBuffer()) });
   if (res) toast('Saved ' + res.name);
+}
+
+
+// ---------- templates ----------
+const TEMPLATES = [
+  { name: 'Flowchart', nodes: [['a', 'terminator', 200, 20, 140, 50, 'Start'], ['b', 'process', 200, 110, 140, 70, 'Step one'], ['c', 'decision', 190, 220, 160, 100, 'OK?'], ['d', 'process', 440, 235, 140, 70, 'Fix'], ['e', 'terminator', 200, 370, 140, 50, 'End']], edges: [['a', 'b'], ['b', 'c'], ['c', 'd', 'No'], ['d', 'b'], ['c', 'e', 'Yes']] },
+  { name: 'Org chart', nodes: [['a', 'rounded', 240, 20, 140, 60, 'Director'], ['b', 'rounded', 60, 150, 140, 60, 'Manager A'], ['c', 'rounded', 240, 150, 140, 60, 'Manager B'], ['d', 'rounded', 420, 150, 140, 60, 'Manager C'], ['e', 'process', 0, 280, 120, 50, 'Team 1'], ['f', 'process', 140, 280, 120, 50, 'Team 2'], ['g', 'process', 300, 280, 120, 50, 'Team 3'], ['h', 'process', 480, 280, 120, 50, 'Team 4']], edges: [['a', 'b', '', 'ortho'], ['a', 'c', '', 'ortho'], ['a', 'd', '', 'ortho'], ['b', 'e', '', 'ortho'], ['b', 'f', '', 'ortho'], ['c', 'g', '', 'ortho'], ['d', 'h', '', 'ortho']] },
+  { name: 'UML class diagram', nodes: [['a', 'class', 220, 20, 170, 110, 'Animal'], ['b', 'class', 60, 220, 170, 110, 'Dog'], ['c', 'class', 380, 220, 170, 110, 'Cat'], ['d', 'interface', 620, 40, 160, 80, '<<interface>> Pet']], edges: [['b', 'a', 'extends', 'ortho'], ['c', 'a', 'extends', 'ortho'], ['a', 'd', 'implements', 'line', 1]] },
+  { name: 'UML use case', nodes: [['a', 'actor', 20, 120, 60, 90, 'User'], ['b', 'usecase', 220, 40, 170, 70, 'Sign in'], ['c', 'usecase', 220, 150, 170, 70, 'Browse items'], ['d', 'usecase', 220, 260, 170, 70, 'Check out'], ['e', 'actor', 560, 150, 60, 90, 'Admin']], edges: [['a', 'b'], ['a', 'c'], ['a', 'd'], ['e', 'c']] },
+  { name: 'UML sequence', nodes: [['a', 'lifeline', 40, 20, 110, 260, 'Client'], ['b', 'lifeline', 260, 20, 110, 260, 'Server'], ['c', 'lifeline', 480, 20, 110, 260, 'Database']], edges: [] },
+  { name: 'UML state machine', nodes: [['a', 'ellipse', 30, 90, 40, 40, ''], ['b', 'state', 130, 75, 130, 70, 'Idle'], ['c', 'state', 360, 75, 130, 70, 'Running'], ['d', 'state', 590, 75, 130, 70, 'Done']], edges: [['a', 'b'], ['b', 'c', 'start'], ['c', 'd', 'finish'], ['c', 'b', 'pause', 'line', 1]] },
+  { name: 'Network topology', nodes: [['a', 'cloud', 240, 10, 140, 80, 'Internet'], ['b', 'firewall', 265, 130, 90, 80, 'Firewall'], ['c', 'router', 270, 260, 80, 80, 'Router'], ['d', 'netswitch', 260, 390, 100, 50, 'Switch'], ['e', 'server', 80, 500, 70, 90, 'Server'], ['f', 'laptop', 260, 510, 100, 70, 'Laptop'], ['g', 'laptop', 450, 510, 100, 70, 'Laptop']], edges: [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'e', '', 'ortho'], ['d', 'f'], ['d', 'g', '', 'ortho']] },
+  { name: 'Circuit (RC + battery)', nodes: [['a', 'battery', 40, 120, 60, 50, 'V'], ['b', 'resistor', 180, 20, 100, 36, 'R1'], ['c', 'capacitor', 400, 120, 60, 50, 'C1'], ['d', 'ground', 240, 260, 40, 40, '']], edges: [['a', 'b', '', 'ortho'], ['b', 'c', '', 'ortho'], ['c', 'd', '', 'ortho'], ['a', 'd', '', 'ortho']] },
+  { name: 'Swimlane process', nodes: [['l1', 'text', 10, 10, 120, 40, 'Customer'], ['l2', 'text', 10, 160, 120, 40, 'Sales'], ['l3', 'text', 10, 310, 120, 40, 'Fulfilment'], ['a', 'terminator', 160, 15, 130, 40, 'Order'], ['b', 'process', 160, 160, 130, 50, 'Review'], ['c', 'decision', 340, 140, 130, 90, 'In stock?'], ['d', 'process', 540, 165, 130, 50, 'Ship'], ['e', 'terminator', 540, 315, 130, 40, 'Done']], edges: [['a', 'b'], ['b', 'c'], ['c', 'd', 'Yes'], ['d', 'e']] },
+  { name: 'Venn / relation', nodes: [['a', 'ellipse', 80, 60, 200, 150, 'Set A'], ['b', 'ellipse', 200, 60, 200, 150, 'Set B']], edges: [] },
+];
+function buildTemplate(t) {
+  const map = {};
+  const shapes = t.nodes.map(([k, type, x, y, w, hh, text]) => { const s = { id: uid(), type, x, y, w, h: hh, text, fill: type === 'text' ? 'none' : type === 'decision' ? '#e6e6e6' : '#ffffff', stroke: '#3a3a3a', fs: 14 }; if (['activation'].includes(type)) s.fill = '#e6e6e6'; map[k] = s.id; return s; });
+  const edges = t.edges.map(([f, to, label = '', kind = 'line', dash]) => ({ id: uid(), from: map[f], to: map[to], kind, label, arrow: 'end', stroke: '#9a9a9a', ...(dash ? { dash: true } : {}) }));
+  return { shapes, edges, title: t.name };
+}
+function openTemplates() {
+  const close = () => back.remove();
+  const grid = h('div', { style: 'display:grid;grid-template-columns:repeat(3,200px);gap:10px' });
+  TEMPLATES.forEach((t) => {
+    const d = buildTemplate(t); const b = bounds(d.shapes);
+    const pv = sv('svg', { viewBox: `${b.x - 10} ${b.y - 10} ${b.w + 20} ${b.h + 20}`, width: 180, height: 110, style: 'background:#1c1c1c;border-radius:4px' });
+    d.shapes.forEach((s) => { const prev = { ...s, text: '' }; pv.append(shapeEl(prev, true)); });
+    const card = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:6px;height:auto;padding:8px', onclick: () => { if (doc.shapes.length && !confirm('Replace the current diagram with this template?')) return; commit(); doc = d; sel.clear(); close(); render(); fit(); } }, pv, h('span', { text: t.name }));
+    grid.append(card);
+  });
+  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal' }, h('h2', { text: 'Templates' }), grid, h('div', { class: 'row', style: 'justify-content:flex-end' }, btn('Close', close))));
+  document.body.append(back);
 }
 
 // start with a small example so the canvas is not empty
