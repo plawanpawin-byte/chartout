@@ -65,7 +65,7 @@ const pal = h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6p
 SHAPES.forEach(([k, n]) => {
   const prev = sv('svg', { viewBox: '0 0 60 40', width: 60, height: 40 });
   prev.append(shapeEl({ type: k, x: 5, y: 5, w: 50, h: 30, fill: '#d0d0d0', stroke: '#8a8a8a', text: '', fs: 10 }, true));
-  const c = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;font-size:11px', draggable: 'true', onclick: () => addShape(k) }, prev, h('span', { text: n }));
+  const c = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 6px;font-size:11px;height:auto', draggable: 'true', onclick: () => addShape(k) }, prev, h('span', { text: n }));
   c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'shape:' + k));
   pal.append(c);
 });
@@ -225,7 +225,7 @@ function renderRight() {
     fs.addEventListener('pointerdown', commit);
     right.append(h('h3', { text: 'Text size' }), fs);
     right.append(h('h3', { text: 'Size' }), h('div', { class: 'row' }, numField('W', shapes[0].w, (v) => shapes.forEach((s) => (s.w = v))), numField('H', shapes[0].h, (v) => shapes.forEach((s) => (s.h = v)))));
-    right.append(h('h3', { text: 'Align' }), h('div', { class: 'ptools', style: 'display:flex;flex-wrap:wrap;gap:4px' }, ['Left', 'Center', 'Right', 'Top', 'Middle', 'Bottom'].map((a) => btn(a, () => align(a.toLowerCase())))), btn('Distribute H', () => distribute('x')), btn('Distribute V', () => distribute('y')));
+    right.append(h('h3', { text: 'Align' }), h('div', { class: 'ptools', style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px' }, ['Left', 'Center', 'Right', 'Top', 'Middle', 'Bottom'].map((a) => btn(a, () => align(a.toLowerCase())))), h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px' }, btn('Distribute H', () => distribute('x')), btn('Distribute V', () => distribute('y'))));
   }
   if (edges.length) {
     right.append(h('h3', { text: 'Connector' }),
