@@ -165,8 +165,11 @@ function edgePath(e) {
   const a = doc.shapes.find((s) => s.id === e.from), b = doc.shapes.find((s) => s.id === e.to); if (!a || !b) return null;
   const ca = centerOf(a), cb = centerOf(b);
   if (e.kind === 'ortho') {
-    const horiz = Math.abs(cb.x - ca.x) > Math.abs(cb.y - ca.y);
-    const mid = horiz ? [{ x: (ca.x + cb.x) / 2, y: ca.y }, { x: (ca.x + cb.x) / 2, y: cb.y }] : [{ x: ca.x, y: (ca.y + cb.y) / 2 }, { x: cb.x, y: (ca.y + cb.y) / 2 }];
+    const vgap = Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h)), hgap = Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w));
+    const horiz = (hgap > 0 && vgap <= 0) || (hgap > 0 && vgap > 0 && hgap > vgap) || (hgap <= 0 && vgap <= 0 && Math.abs(cb.x - ca.x) > Math.abs(cb.y - ca.y));
+    const mx = hgap > 0 ? (cb.x > ca.x ? (a.x + a.w + b.x) / 2 : (b.x + b.w + a.x) / 2) : (ca.x + cb.x) / 2;
+    const my = vgap > 0 ? (cb.y > ca.y ? (a.y + a.h + b.y) / 2 : (b.y + b.h + a.y) / 2) : (ca.y + cb.y) / 2;
+    const mid = horiz ? [{ x: mx, y: ca.y }, { x: mx, y: cb.y }] : [{ x: ca.x, y: my }, { x: cb.x, y: my }];
     const p0 = edgePoint(a, mid[0]), p3 = edgePoint(b, mid[1]);
     return { d: `M${p0.x} ${p0.y}L${mid[0].x} ${mid[0].y}L${mid[1].x} ${mid[1].y}L${p3.x} ${p3.y}`, label: { x: (mid[0].x + mid[1].x) / 2, y: (mid[0].y + mid[1].y) / 2 } };
   }

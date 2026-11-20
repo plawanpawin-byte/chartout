@@ -1,7 +1,7 @@
 {
   "name": "chartout",
   "productName": "Chartout",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Draw flowcharts, org charts and diagrams with a clean shape library.",
   "main": "main.js",
   "author": "Lookout",
