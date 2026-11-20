@@ -453,7 +453,7 @@ const TEMPLATES = [
 ];
 function buildTemplate(t) {
   const map = {};
-  const shapes = t.nodes.map(([k, type, x, y, w, hh, text]) => { const s = { id: uid(), type, x, y, w, h: hh, text, fill: type === 'text' ? 'none' : type === 'decision' ? '#e6e6e6' : '#ffffff', stroke: '#3a3a3a', fs: 14 }; if (['activation'].includes(type)) s.fill = '#e6e6e6'; map[k] = s.id; return s; });
+  const shapes = t.nodes.map(([k, type, x, y, w, hh, text]) => { const s = { id: uid(), type, x, y, w, h: hh, text, fill: type === 'text' ? 'none' : type === 'decision' ? '#e6e6e6' : '#ffffff', stroke: '#3a3a3a', fs: 14 }; if (['activation'].includes(type)) s.fill = '#e6e6e6'; if (t.name.startsWith('Venn') && k === 'b') { s.fill = 'none'; s.stroke = '#b0b0b0'; } if (['resistor', 'capacitor', 'inductor', 'battery', 'diode', 'ground', 'cswitch', 'actor'].includes(type)) s.stroke = '#c4c4c4'; map[k] = s.id; return s; });
   const edges = t.edges.map(([f, to, label = '', kind = 'line', dash]) => ({ id: uid(), from: map[f], to: map[to], kind, label, arrow: 'end', stroke: '#9a9a9a', ...(dash ? { dash: true } : {}) }));
   return { shapes, edges, title: t.name };
 }
