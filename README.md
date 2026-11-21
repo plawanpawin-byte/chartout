@@ -1,8 +1,10 @@
-<p align="center"><img src="screenshots/banner.png" alt="Chartout" width="100%"></p>
+<p align="center"><img src="screenshots/logo.png" alt="Chartout" width="128"></p>
 
-<p align="center"><b>Flowcharts and diagrams</b><br>Version 1.0.3 for Windows · Free · Offline · No account</p>
+<h1 align="center">Chartout</h1>
 
-<p align="center"><a href="https://github.com/plawanpawin-byte/chartout/releases/latest"><b>Download Chartout</b></a> · <a href="https://github.com/plawanpawin-byte/Lookout">All Lookout apps</a></p>
+<p align="center"><b>Flowcharts and diagrams</b><br>Version 1.0.16 for Windows · Free · Offline · No account</p>
+
+<p align="center"><a href="https://github.com/plawanpawin-byte/chartout/releases/latest"><b>Download Chartout</b></a> · <a href="https://github.com/plawanpawin-byte/lookout-launcher">Lookout launcher</a> · <a href="https://github.com/plawanpawin-byte/Lookout">All Lookout apps</a></p>
 
 ---
 
@@ -12,11 +14,51 @@ Chartout is a diagram maker for flowcharts, org charts, process maps and quick s
 
 ![Chartout](screenshots/01-flowchart.png)
 
-**On this page:** [Screenshots](#see-it-in-action) · [Interface](#the-interface) · [Features](#everything-it-can-do) · [How to use it](#how-to-use-it) · [Shortcuts](#keyboard-shortcuts) · [Formats](#files-and-formats) · [Privacy](#private-by-design) · [Install](#install) · [Questions](#questions)
+**On this page:** [In plain words](#in-plain-words) · [Who it is for](#who-it-is-for) · [Try it in 3 steps](#try-it-in-3-steps) · [Screenshots](#see-it-in-action) · [Features](#everything-it-can-do) · [How to use it](#how-to-use-it) · [Privacy](#private-by-design) · [Install](#install) · [Questions](#questions)
 
-## What is new in 1.0.3
+## In plain words
 
-A refreshed interface: every toolbar button now has a clear line icon, the app's mark sits at the top left, controls share one height and spacing, panels line up in tidy grids, and the toolbar keeps every button reachable on smaller windows by switching less important buttons to icons.
+Chartout is a drawing program for **diagrams that show how things connect**: a flowchart of how an order is handled, an organisation chart, a process map, the steps of a recipe, or a quick sketch of how a system works. You drag shapes (boxes, diamonds, circles) from the left panel onto a big blank canvas, type text in them, and join them with arrows.
+
+The arrows are **connectors**: they stay attached to the shapes. If you move a box, the arrow follows it, so you can rearrange a diagram without redrawing anything. When you are happy, export it as a PNG picture or an SVG drawing and paste it into a document or slide.
+
+**Not for:** Chartout is for diagrams made of boxes and arrows. It is not a chart maker for numbers (bar or pie charts) and not a full vector illustration program.
+
+## Who it is for
+
+- **Teams** documenting how work flows from one step to the next.
+- **Students** drawing algorithms, decision trees or family trees.
+- **Managers** who need a clean org chart for a presentation.
+
+## Try it in 3 steps
+
+1. Drag a **Process** shape onto the canvas and double-click it to type.
+2. Join two shapes with a connector (the How to use it steps below show how). It stays attached when you move them.
+3. Select several shapes and use the align and distribute buttons to line them up neatly. Then export a PNG.
+
+## What is new in 1.0.16
+
+A new look inspired by Google's own tools (AI Studio, Colab, Gemini): a calm dark charcoal theme, rounded pill buttons, a soft blue accent and roomier spacing. The app icon is now a colour logo so you can find Chartout at a glance in the Start menu and in the Lookout launcher. All screenshots below were taken again with the new look.
+
+## In plain words
+
+Chartout is a drawing program for **diagrams that show how things connect**: a flowchart of how an order is handled, an organisation chart, a process map, the steps of a recipe, or a quick sketch of how a system works. You drag shapes (boxes, diamonds, circles) from the left panel onto a big blank canvas, type text in them, and join them with arrows.
+
+The arrows are **connectors**: they stay attached to the shapes. If you move a box, the arrow follows it, so you can rearrange a diagram without redrawing anything. When you are happy, export it as a PNG picture or an SVG drawing and paste it into a document or slide.
+
+**Not for:** Chartout is for diagrams made of boxes and arrows. It is not a chart maker for numbers (bar or pie charts) and not a full vector illustration program.
+
+## Who it is for
+
+- **Teams** documenting how work flows from one step to the next.
+- **Students** drawing algorithms, decision trees or family trees.
+- **Managers** who need a clean org chart for a presentation.
+
+## Try it in 3 steps
+
+1. Drag a **Process** shape onto the canvas and double-click it to type.
+2. Join two shapes with a connector (the How to use it steps below show how). It stays attached when you move them.
+3. Select several shapes and use the align and distribute buttons to line them up neatly. Then export a PNG.
 
 ## See it in action
 
@@ -121,7 +163,7 @@ Saves .chartout files. Exports PNG and SVG.
 
 ## Install
 
-1. Open the [latest release](https://github.com/plawanpawin-byte/chartout/releases/latest) and download the file named **Chartout-Setup-** followed by the version number and **.exe**. You can also install it from the [Lookout launcher](https://github.com/${OWNER}/lookout-launcher), which keeps it up to date.
+1. Open the [latest release](https://github.com/plawanpawin-byte/chartout/releases/latest) and download the file named **Chartout-Setup-** followed by the version number and **.exe**. You can also install it from the [Lookout launcher](https://github.com/plawanpawin-byte/lookout-launcher), which keeps it up to date.
 2. Run the installer. It installs just for you, so it does not ask for administrator rights.
 3. Windows may show a blue **Windows protected your PC** screen because these installers are not signed with a paid certificate. Click **More info**, then **Run anyway**.
 4. Open Chartout from the Start menu.
@@ -136,18 +178,40 @@ Not yet. Export your old diagrams as images and redraw the parts you need.
 **Is there a limit on diagram size?**  
 No fixed limit. Use Fit to see a large diagram at once.
 
+**What is the difference between PNG and SVG export?**  
+PNG is a normal picture that opens anywhere. SVG stays sharp at any size and can still be edited in other drawing tools.
+
+**Can I reopen and keep editing a diagram?**  
+Yes. Save the diagram as a project file and open it again later; every shape and connector comes back.
+
+**Is there a limit to the canvas size?**  
+The canvas is effectively unlimited. Use zoom and Fit to move around.
+
+**What is the difference between PNG and SVG export?**  
+PNG is a normal picture that opens anywhere. SVG stays sharp at any size and can still be edited in other drawing tools.
+
+**Can I reopen and keep editing a diagram?**  
+Yes. Save the diagram as a project file and open it again later; every shape and connector comes back.
+
+**Is there a limit to the canvas size?**  
+The canvas is effectively unlimited. Use zoom and Fit to move around.
+
 ## About Lookout
 
-Chartout belongs to the **[Lookout](https://github.com/plawanpawin-byte/Lookout)** family: ten small, private Windows apps for documents and media, all with the same calm grey look and the same promise that your files stay yours. Install and update them together with the [Lookout launcher](https://github.com/plawanpawin-byte/lookout-launcher).
+Chartout is part of **[Lookout](https://github.com/plawanpawin-byte/Lookout)**: ten small, private Windows apps for documents and media that share one look and one promise, that your files stay on your computer. Install and update them together with the [Lookout launcher](https://github.com/plawanpawin-byte/lookout-launcher).
 
-- **[Pageout](https://github.com/plawanpawin-byte/pageout)**: read, annotate and sign pdfs
-- **[Branchout](https://github.com/plawanpawin-byte/branchout)**: mind maps and outlines
-- **[Planout](https://github.com/plawanpawin-byte/planout)**: plans and gantt timelines
-- **[Frameout](https://github.com/plawanpawin-byte/frameout)**: screen design and prototypes
-- **[Cutout](https://github.com/plawanpawin-byte/cutout)**: video editing on a timeline
-- **[Shiftout](https://github.com/plawanpawin-byte/shiftout)**: convert and compress media
-- **[Castout](https://github.com/plawanpawin-byte/castout)**: record your screen
-- **[Mendout](https://github.com/plawanpawin-byte/mendout)**: repair damaged media
-- **[Tuneout](https://github.com/plawanpawin-byte/tuneout)**: record and edit audio
+| | App | What it is for | Code |
+| --- | --- | --- | --- |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/lookout-launcher/main/build/icon.png" width="32" alt="Lookout"> | **Lookout** | Install, open and update all the apps below | [GitHub](https://github.com/plawanpawin-byte/lookout-launcher) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/pageout/main/build/icon.png" width="32" alt="Pageout"> | **Pageout** | Read, annotate and sign PDFs | [GitHub](https://github.com/plawanpawin-byte/pageout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/chartout/main/build/icon.png" width="32" alt="Chartout"> | **Chartout** | Flowcharts, org charts and diagrams | [GitHub](https://github.com/plawanpawin-byte/chartout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/branchout/main/build/icon.png" width="32" alt="Branchout"> | **Branchout** | Mind maps and outlines | [GitHub](https://github.com/plawanpawin-byte/branchout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/planout/main/build/icon.png" width="32" alt="Planout"> | **Planout** | Project plans and Gantt timelines | [GitHub](https://github.com/plawanpawin-byte/planout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/frameout/main/build/icon.png" width="32" alt="Frameout"> | **Frameout** | App and web screen design with click-through prototypes | [GitHub](https://github.com/plawanpawin-byte/frameout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/cutout/main/build/icon.png" width="32" alt="Cutout"> | **Cutout** | Video editing on a timeline | [GitHub](https://github.com/plawanpawin-byte/cutout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/shiftout/main/build/icon.png" width="32" alt="Shiftout"> | **Shiftout** | Convert and compress video and audio, make GIFs | [GitHub](https://github.com/plawanpawin-byte/shiftout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/castout/main/build/icon.png" width="32" alt="Castout"> | **Castout** | Record your screen | [GitHub](https://github.com/plawanpawin-byte/castout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/mendout/main/build/icon.png" width="32" alt="Mendout"> | **Mendout** | Check and repair damaged video, audio, pictures and PDFs | [GitHub](https://github.com/plawanpawin-byte/mendout) |
+| <img src="https://raw.githubusercontent.com/plawanpawin-byte/tuneout/main/build/icon.png" width="32" alt="Tuneout"> | **Tuneout** | Record and edit audio | [GitHub](https://github.com/plawanpawin-byte/tuneout) |
 
 Released under the MIT License.
