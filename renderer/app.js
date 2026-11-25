@@ -99,10 +99,12 @@ function tbtn(label, ic, fn, cls = '', tip = label) {
 // editable diagram name in the top bar (like NotebookLM): Enter keeps it, Escape puts the old name back
 let titleOld = null;
 const titleInput = h('input', { type: 'text', class: 'tbtitle', maxlength: 120, title: 'Diagram name', 'aria-label': 'Diagram name', placeholder: 'Untitled',
-  onfocus: () => { titleOld = doc.title || ''; }, onblur: () => { titleOld = null; },
+  onfocus: () => { if (titleOld === null) titleOld = doc.title || ''; }, onblur: () => { if (document.hasFocus()) titleOld = null; },
   oninput: (e) => { doc.title = e.target.value; },
   onchange: (e) => { if (!e.target.value.trim()) { doc.title = 'Untitled'; e.target.value = doc.title; } },
   onkeydown: (e) => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { if (titleOld !== null) doc.title = titleOld; e.target.value = doc.title; e.target.blur(); } } });
+// a click anywhere else (the floating bars keep focus on purpose) ends editing the name, so keys go to the canvas again
+document.addEventListener('pointerdown', (e) => { if (document.activeElement === titleInput && e.target !== titleInput) titleInput.blur(); }, true);
 function syncTitle() { if (document.activeElement !== titleInput) titleInput.value = doc.title || ''; }
 // small menus (Export) anchored under a button; Esc, an outside click or focus leaving closes them
 let fly = null, flyAnchor = null;
@@ -171,8 +173,9 @@ left.append(phead('Shapes', 'left'), h('label', { class: 'sbox' }, icon('search'
 function shapeCard(k, n) {
   const prev = sv('svg', { viewBox: '0 0 60 40', width: 60, height: 40, 'aria-hidden': 'true' });
   prev.append(shapeEl({ type: k, x: 5, y: 5, w: 50, h: 30, preview: 1, fill: '#d0d0d0', stroke: '#8a8a8a', text: '', fs: 10 }, true));
-  const c = h('button', { class: 'scard', draggable: 'true', title: n + ': click to add, or drag onto the canvas', 'aria-label': 'Add ' + n, onclick: () => addShape(k) }, prev, h('span', { text: n }));
+  const c = h('button', { class: 'scard', draggable: 'true', title: n + ': click to add, or drag onto the canvas', 'aria-label': 'Add ' + n, onclick: (e) => { addShape(k); if (e.detail > 0) c.blur(); } }, prev, h('span', { text: n }));
   c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'shape:' + k));
+  c.addEventListener('dragend', () => c.blur());
   return c;
 }
 function renderShapes() {
@@ -203,11 +206,12 @@ const toWorld = (e) => { const r = svg.getBoundingClientRect(); return { x: (e.c
 const sn = (v) => (snap ? Math.round(v / 10) * 10 : v);
 function applyView() { world.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`); gridRect.style.display = grid ? '' : 'none'; renderStatus(); }
 function zoomBy(f, cx, cy) { const r = svg.getBoundingClientRect(); cx = cx ?? r.width / 2; cy = cy ?? r.height / 2; const nz = clamp(zoom * f, 0.1, 5); panX = cx - (cx - panX) * (nz / zoom); panY = cy - (cy - panY) * (nz / zoom); zoom = nz; applyView(); }
+const FIT = { top: 68, bottom: 76, side: 40 }; // keeps fitted shapes clear of the selection bar (top) and the dock (bottom)
 function fit() {
-  if (!doc.shapes.length) { zoom = 1; panX = 40; panY = 40; applyView(); return; }
-  const b = bounds(doc.shapes); const r = svg.getBoundingClientRect();
-  zoom = clamp(Math.min((r.width - 80) / b.w, (r.height - 80) / b.h), 0.1, 2);
-  panX = (r.width - b.w * zoom) / 2 - b.x * zoom; panY = (r.height - b.h * zoom) / 2 - b.y * zoom; applyView();
+  if (!doc.shapes.length) { zoom = 1; panX = FIT.side; panY = FIT.top; applyView(); return; }
+  const b = bounds(doc.shapes); const r = svg.getBoundingClientRect(); const ih = r.height - FIT.top - FIT.bottom;
+  zoom = clamp(Math.min((r.width - FIT.side * 2) / b.w, ih / b.h), 0.1, 2);
+  panX = (r.width - b.w * zoom) / 2 - b.x * zoom; panY = FIT.top + (ih - b.h * zoom) / 2 - b.y * zoom; applyView();
 }
 const bounds = (list) => { const x0 = Math.min(...list.map((s) => s.x)), y0 = Math.min(...list.map((s) => s.y)), x1 = Math.max(...list.map((s) => s.x + s.w)), y1 = Math.max(...list.map((s) => s.y + s.h)); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
 
@@ -322,7 +326,7 @@ function render() {
     const p = edgePath(e); if (!p) continue;
     const g = sv('g'); g.dataset.id = e.id; g.dataset.kind = 'edge';
     g.append(sv('path', { d: p.d, fill: 'none', stroke: 'transparent', 'stroke-width': 12 }));
-    g.append(sv('path', { d: p.d, fill: 'none', stroke: sel.has(e.id) ? '#a8c7fa' : e.stroke || '#9a9a9a', 'stroke-width': sel.has(e.id) ? 2.6 : 1.8, 'marker-end': e.arrow === 'none' ? '' : 'url(#arr)', 'stroke-dasharray': e.dash ? '6 4' : '' }));
+    const ep = sv('path', { d: p.d, fill: 'none', stroke: sel.has(e.id) ? '#a8c7fa' : e.stroke || '#9a9a9a', 'stroke-width': sel.has(e.id) ? 2.6 : 1.8, 'marker-end': e.arrow === 'none' ? '' : 'url(#arr)', 'stroke-dasharray': e.dash ? '6 4' : '' }); if (sel.has(e.id)) ep.dataset.sel = e.stroke || '#9a9a9a'; g.append(ep);
     if (e.label) {
       const w = e.label.length * 7 + 10;
       g.append(sv('rect', { x: p.label.x - w / 2, y: p.label.y - 10, width: w, height: 20, fill: '#262626', rx: 3 }));
@@ -414,15 +418,17 @@ function distribute(axis) {
   for (const s of ss) { s[axis] = pos; pos += s[size] + gap; }
   render();
 }
+// closes a dialog and gives focus back to the control that opened it (if it is still on the page)
+function dlgCloser(back) { const opener = document.activeElement; return () => { back.remove(); if (opener && opener !== document.body && opener.isConnected) opener.focus(); }; }
 function editText(s) {
   const ta = h('textarea', { rows: 4, style: 'width:300px' }); ta.value = s.text;
-  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Shape text' }, h('h2', { text: 'Shape text' }), ta, h('div', { class: 'row mact' }, btn('Cancel', () => back.remove()), btn('OK', () => { commit(); s.text = ta.value; back.remove(); render(); }, 'primary'))));
-  document.body.append(back); ta.focus(); ta.select();
+  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Shape text' }, h('h2', { text: 'Shape text' }), ta, h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', () => { commit(); s.text = ta.value; close(); render(); }, 'primary'))));
+  const close = dlgCloser(back); document.body.append(back); ta.focus(); ta.select();
 }
 function editLabel(e) {
   const i = h('input', { type: 'text', value: e.label || '', style: 'width:260px' });
-  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Connector label' }, h('h2', { text: 'Connector label' }), i, h('div', { class: 'row mact' }, btn('Cancel', () => back.remove()), btn('OK', () => { commit(); e.label = i.value; back.remove(); render(); }, 'primary'))));
-  document.body.append(back); i.focus();
+  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Connector label' }, h('h2', { text: 'Connector label' }), i, h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', () => { commit(); e.label = i.value; close(); render(); }, 'primary'))));
+  const close = dlgCloser(back); document.body.append(back); i.focus();
 }
 
 // ---------- pointer interaction ----------
@@ -532,8 +538,8 @@ function exportSvgString() {
   const root = sv('svg', { xmlns: NS, width: b.w + pad * 2, height: b.h + pad * 2, viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}` });
   root.append(sv('rect', { x: b.x - pad, y: b.y - pad, width: b.w + pad * 2, height: b.h + pad * 2, fill: '#ffffff' }));
   const d2 = defs.cloneNode(true); d2.querySelector('#gridp')?.remove(); root.append(d2);
-  const ge = gEdges.cloneNode(true); ge.querySelectorAll('path[stroke="transparent"]').forEach((n) => n.remove()); ge.querySelectorAll('rect[fill="#262626"]').forEach((n) => n.setAttribute('fill', '#ffffff')); ge.querySelectorAll('text').forEach((n) => n.setAttribute('fill', '#222')); ge.querySelectorAll('path[stroke="#a8c7fa"]').forEach((n) => { n.setAttribute('stroke', '#555'); n.setAttribute('stroke-width', 1.8); });
-  ge.querySelectorAll('path[stroke="#9a9a9a"]').forEach((n) => n.setAttribute('stroke', '#555'));
+  const ge = gEdges.cloneNode(true); ge.querySelectorAll('path[stroke="transparent"]').forEach((n) => n.remove()); ge.querySelectorAll('rect[fill="#262626"]').forEach((n) => n.setAttribute('fill', '#ffffff')); ge.querySelectorAll('text').forEach((n) => n.setAttribute('fill', '#222')); ge.querySelectorAll('path[data-sel]').forEach((n) => { n.setAttribute('stroke', n.dataset.sel); n.setAttribute('stroke-width', 1.8); n.removeAttribute('data-sel'); });
+  ge.querySelectorAll('path[stroke="#9a9a9a"], path[stroke="#ffffff"]').forEach((n) => n.setAttribute('stroke', '#555'));
   root.append(ge);
   const gs = gShapes.cloneNode(true); gs.querySelectorAll('rect[data-sel]').forEach((n) => n.remove()); gs.querySelectorAll('text[fill="#e4e4e4"]').forEach((n) => n.setAttribute('fill', '#222'));
   root.append(gs);
@@ -571,7 +577,7 @@ function buildTemplate(t) {
   return { shapes, edges, title: t.name };
 }
 function openTemplates() {
-  const close = () => back.remove();
+  let close;
   const grid = h('div', { class: 'tgrid' });
   TEMPLATES.forEach((t) => {
     const d = buildTemplate(t); const b = bounds(d.shapes);
@@ -582,8 +588,8 @@ function openTemplates() {
     grid.append(card);
   });
   const back = h('div', { class: 'modal-back', onclick: (e) => { if (e.target === back) close(); } },
-    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Templates' }, h('h2', { text: 'Templates' }), h('div', { class: 'msub', text: 'Start from a ready-made diagram. It replaces the current one (Undo brings it back).' }), grid, h('div', { class: 'row mact' }, btn('Close', close))));
-  document.body.append(back);
+    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Templates' }, h('h2', { text: 'Templates' }), h('div', { class: 'msub', text: 'Start from a ready-made diagram. It replaces the current one (Undo brings it back).' }), grid, h('div', { class: 'row mact' }, btn('Close', () => close()))));
+  close = dlgCloser(back); document.body.append(back);
   grid.querySelector('.tcard').focus();
 }
 // ---------- help ----------
@@ -594,12 +600,12 @@ const SHORTCUTS = [
 ];
 function showHelp() {
   if (document.querySelector('.modal-back.help')) return;
-  const close = () => back.remove();
+  let close;
   const keys = h('div', { class: 'keys' }, SHORTCUTS.map(([g, rows]) => h('div', { class: 'kgrp' }, h('h3', { text: g }),
     rows.map(([ks, what]) => h('div', { class: 'krow' }, h('span', { class: 'kk' }, ks.map((k) => h('kbd', { text: k }))), h('span', { text: what }))))));
   const back = h('div', { class: 'modal-back help', onclick: (e) => { if (e.target === back) close(); } },
-    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard shortcuts' }, h('h2', { text: 'Keyboard shortcuts' }), keys, h('div', { class: 'row mact' }, btn('Close', close, 'primary'))));
-  document.body.append(back);
+    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard shortcuts' }, h('h2', { text: 'Keyboard shortcuts' }), keys, h('div', { class: 'row mact' }, btn('Close', () => close(), 'primary'))));
+  close = dlgCloser(back); document.body.append(back);
   back.querySelector('.mact .btn').focus();
 }
 
