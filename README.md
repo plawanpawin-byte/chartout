@@ -36,29 +36,16 @@ The arrows are **connectors**: they stay attached to the shapes. If you move a b
 2. Join two shapes with a connector (the How to use it steps below show how). It stays attached when you move them.
 3. Select several shapes and use the align and distribute buttons to line them up neatly. Then export a PNG.
 
-## What is new in 1.0.17
+## What is new in 1.0.18 (beta)
 
-A new look inspired by Google's own tools (AI Studio, Colab, Gemini): a calm dark charcoal theme, rounded pill buttons, a soft blue accent and roomier spacing. The app icon is now a colour logo so you can find Chartout at a glance in the Start menu and in the Lookout launcher. All screenshots below were taken again with the new look. The program now shows under its own name (not Electron) in Task Manager and the taskbar.
+[Download the 1.0.18 beta](https://github.com/plawanpawin-byte/chartout/releases/tag/v1.0.18). The screenshots below still show the older layout.
 
-## In plain words
-
-Chartout is a drawing program for **diagrams that show how things connect**: a flowchart of how an order is handled, an organisation chart, a process map, the steps of a recipe, or a quick sketch of how a system works. You drag shapes (boxes, diamonds, circles) from the left panel onto a big blank canvas, type text in them, and join them with arrows.
-
-The arrows are **connectors**: they stay attached to the shapes. If you move a box, the arrow follows it, so you can rearrange a diagram without redrawing anything. When you are happy, export it as a PNG picture or an SVG drawing and paste it into a document or slide.
-
-**Not for:** Chartout is for diagrams made of boxes and arrows. It is not a chart maker for numbers (bar or pie charts) and not a full vector illustration program.
-
-## Who it is for
-
-- **Teams** documenting how work flows from one step to the next.
-- **Students** drawing algorithms, decision trees or family trees.
-- **Managers** who need a clean org chart for a presentation.
-
-## Try it in 3 steps
-
-1. Drag a **Process** shape onto the canvas and double-click it to type.
-2. Join two shapes with a connector (the How to use it steps below show how). It stays attached when you move them.
-3. Select several shapes and use the align and distribute buttons to line them up neatly. Then export a PNG.
+- A new Google-style layout: the diagram name in the top bar, a Shapes panel with categories and search, floating toolbars, and a keyboard shortcuts window.
+- Closing the window with unsaved changes now asks first. Before, the window could not be closed at all.
+- New, Open and Templates ask only when there are unsaved changes.
+- Saving writes a temporary file first, and read-only or locked files give a plain message.
+- Many fixes to undo and redo, Thai text wrapping, connector labels, export, damaged files and keyboard shortcuts (also with a Thai keyboard layout).
+- Not changed yet: Save asks for a location every time.
 
 ## See it in action
 
