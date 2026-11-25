@@ -51,12 +51,17 @@ let savedSnap = null;         // the diagram as last saved or opened; null until
 const isDirty = () => savedSnap !== null && snapshot() !== savedSnap;
 // ask before throwing away unsaved changes (New, Open, Templates); a saved or untouched diagram goes without asking
 const okToDiscard = (msg) => !isDirty() || confirm(msg);
+// typed but not yet applied: an open text or label dialog, or a size box, whose value differs from what it started with
+const pendingEdit = () => [...document.querySelectorAll('[data-orig]')].some((n) => n.isConnected && n.value !== n.dataset.orig);
+const hasUnsaved = () => isDirty() || pendingEdit();
+// the shortcut letter; on layouts without Latin letters (Thai, Russian) fall back to the physical key
+const keyOf = (e) => { const k = (e.key || '').toLowerCase(); return /^[a-z]$/.test(k) || !/^Key[A-Z]$/.test(e.code || '') ? k : e.code.slice(3).toLowerCase(); };
 // commit(before) records an undo step; pass the snapshot taken before a change that is already made
 function commit(before = snapshot()) { undoS.push(before); if (undoS.length > 100) undoS.shift(); redoS = []; }
 // runs a change and records an undo step only when the diagram really changed
 function edit(fn) { const before = snapshot(); fn(); if (snapshot() !== before) commit(before); render(); }
-function undo() { if (!undoS.length) return; endDrag(); redoS.push(snapshot()); doc = JSON.parse(undoS.pop()); sel.clear(); render(); }
-function redo() { if (!redoS.length) return; endDrag(); undoS.push(snapshot()); doc = JSON.parse(redoS.pop()); sel.clear(); render(); }
+function undo() { if (!undoS.length) return; cancelDrag(); redoS.push(snapshot()); doc = JSON.parse(undoS.pop()); sel.clear(); render(); }
+function redo() { if (!redoS.length) return; cancelDrag(); undoS.push(snapshot()); doc = JSON.parse(redoS.pop()); sel.clear(); render(); }
 
 // ---------- UI ----------
 // Material Symbols (Outlined) style icons, fill-based, on a 24px grid. Path data in the style of Google's Material icons (Apache-2.0).
@@ -102,7 +107,8 @@ app.append(toolbar, h('div', { class: 'main', style: 'flex:1;min-height:0;min-wi
 const btn = (label, fn, cls = '') => h('button', { class: 'btn ' + cls, onclick: fn, text: label });
 // top-bar button: our own fill icon (data-for tells kit.js not to add its line icon) + a label kit.js hides unless "Aa" is on
 function tbtn(label, ic, fn, cls = '', tip = label) {
-  const b = h('button', { class: 'btn ' + cls, onclick: fn, title: tip, 'aria-label': label });
+  // after a mouse click the button lets go of focus, so a later Space pans the canvas instead of pressing the button again
+  const b = h('button', { class: 'btn ' + cls, onclick: (e) => { if (e.detail > 0) b.blur(); fn(e); }, title: tip, 'aria-label': label });
   const i = icon(ic, 20); i.classList.add('ic'); i.dataset.for = label; b.append(i, document.createTextNode(label)); return b;
 }
 // editable diagram name in the top bar (like NotebookLM): Enter keeps it, Escape puts the old name back
@@ -115,7 +121,7 @@ const titleInput = h('input', { type: 'text', class: 'tbtitle', maxlength: 120, 
   onchange: (e) => { if (!e.target.value.trim()) { doc.title = 'Untitled'; e.target.value = doc.title; } },
   onkeydown: (e) => {
     e.stopPropagation();
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && ['s', 'o'].includes(e.key.toLowerCase())) { e.preventDefault(); const k = e.key.toLowerCase(); e.target.blur(); if (k === 's') saveDoc(); else openDoc(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && ['s', 'o'].includes(keyOf(e))) { e.preventDefault(); const k = keyOf(e); e.target.blur(); if (k === 's') saveDoc(); else openDoc(); return; }
     if (e.key === 'Enter') e.target.blur();
     if (e.key === 'Escape') { if (titleOld !== null) doc.title = titleOld; e.target.value = doc.title; e.target.blur(); }
   } });
@@ -426,7 +432,7 @@ function renderRight() {
 }
 const SIZE_MIN = 10, SIZE_MAX = 10000;
 // a size box: a number from 10 to 10000; anything else puts the old value back
-function numField(label, val, set) { const i = h('input', { type: 'number', min: SIZE_MIN, max: SIZE_MAX, value: Math.round(val), style: 'width:70px', onchange: () => { const v = Math.round(+i.value); if (i.value.trim() === '' || !isFinite(v)) { render(); return; } edit(() => set(clamp(v, SIZE_MIN, SIZE_MAX))); } }); return h('label', { class: 'field' }, label, i); }
+function numField(label, val, set) { const i = h('input', { type: 'number', min: SIZE_MIN, max: SIZE_MAX, value: Math.round(val), 'data-orig': String(Math.round(val)), style: 'width:70px', onchange: () => { const v = Math.round(+i.value); if (i.value.trim() === '' || !isFinite(v)) { render(); return; } edit(() => set(clamp(v, SIZE_MIN, SIZE_MAX))); } }); return h('label', { class: 'field' }, label, i); }
 
 // ---------- editing ----------
 function addShape(type, x, y) {
@@ -448,7 +454,7 @@ function paste(offset) {
   render();
 }
 // Duplicate does not touch what Copy put on the clipboard
-function dupe() { const keep = clip, n = pasteN; copy(true); if (clip === keep) return; paste(30); clip = keep; pasteN = n; refreshSel(); }
+function dupe() { if (!doc.shapes.some((s) => sel.has(s.id))) return; const keep = clip, n = pasteN; copy(true); paste(30); clip = keep; pasteN = n; refreshSel(); }
 function order(dir) { const ss = doc.shapes.filter((s) => sel.has(s.id)); if (!ss.length) return; edit(() => { const rest = doc.shapes.filter((s) => !sel.has(s.id)); doc.shapes = dir > 0 ? [...rest, ...ss] : [...ss, ...rest]; }); }
 function align(a) {
   const ss = doc.shapes.filter((s) => sel.has(s.id)); if (ss.length < 2) return; const before = snapshot(); const b = bounds(ss);
@@ -465,14 +471,14 @@ function distribute(axis) {
 // closes a dialog and gives focus back to the control that opened it (if it is still on the page)
 function dlgCloser(back) { const opener = document.activeElement; return () => { back.remove(); if (opener && opener !== document.body && opener.isConnected) opener.focus(); }; }
 function editText(s) {
-  const ta = h('textarea', { rows: 4, style: 'width:300px' }); ta.value = s.text;
+  const ta = h('textarea', { rows: 4, style: 'width:300px' }); ta.value = s.text; ta.dataset.orig = ta.value;
   const ok = () => { close(); edit(() => { s.text = ta.value; }); };
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok(); } });
   const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Shape text' }, h('h2', { text: 'Shape text' }), ta, h('div', { class: 'msub', text: 'Ctrl+Enter to finish.' }), h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', ok, 'primary'))));
   const close = dlgCloser(back); document.body.append(back); ta.focus(); ta.select();
 }
 function editLabel(e) {
-  const i = h('input', { type: 'text', value: e.label || '', style: 'width:260px' });
+  const i = h('input', { type: 'text', value: e.label || '', style: 'width:260px' }); i.dataset.orig = i.value;
   const ok = () => { close(); edit(() => { e.label = i.value.trim() ? i.value : ''; }); };
   i.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); ok(); } });
   const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Connector label' }, h('h2', { text: 'Connector label' }), i, h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', ok, 'primary'))));
@@ -533,6 +539,8 @@ svg.addEventListener('pointermove', (ev) => {
 });
 function renderLive() { render(true); }
 // finish a move or resize: keep one undo step if anything changed
+// drop a move or resize that is still under way, putting the shapes back (used when Undo or Redo is pressed mid-drag)
+function cancelDrag() { const d = drag; if (!d) return; drag = null; if ((d.mode === 'move' || d.mode === 'resize') && d.moved) doc = JSON.parse(d.before); if (d.line) d.line.remove(); if (d.r) d.r.remove(); stage.style.cursor = tool === 'pan' ? 'grab' : tool === 'connect' ? 'crosshair' : 'default'; }
 function endDrag() { const d = drag; if (!d) return; drag = null; if ((d.mode === 'move' || d.mode === 'resize') && d.moved && snapshot() !== d.before) commit(d.before); if (d.line) d.line.remove(); if (d.r) d.r.remove(); }
 svg.addEventListener('pointerup', (ev) => {
   if (!drag) return;
@@ -559,10 +567,12 @@ svg.addEventListener('dblclick', (ev) => {
 });
 svg.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = svg.getBoundingClientRect(); if (ev.ctrlKey || ev.metaKey) zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top); else { panX -= ev.deltaX; panY -= ev.deltaY; applyView(); } }, { passive: false });
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input,textarea,select,[contenteditable]') || document.querySelector('.modal-back')) return;
-  // a focused button keeps Enter and Space for itself; every other shortcut still works
-  if (e.target.matches('button') && (e.key === 'Enter' || e.key === ' ')) return;
-  const k = e.key.toLowerCase();
+  const k = keyOf(e);
+  // Save and Open also work from the size and search boxes (leaving the box applies what was typed)
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 's' || k === 'o') && e.target.matches('input,select') && !document.querySelector('.modal-back')) { e.preventDefault(); e.target.blur(); if (k === 's') saveDoc(); else openDoc(); return; }
+  if (e.target.matches('input,textarea,select,[contenteditable]') || document.querySelector('.modal-back') || fly) return;
+  // a button focused from the keyboard keeps Enter and Space for itself; every other shortcut still works
+  if (e.target.matches('button') && (e.key === 'Enter' || e.key === ' ') && e.target.matches(':focus-visible')) return;
   if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
   else if (e.key === 'Delete' || e.key === 'Backspace') del();
   else if (e.ctrlKey && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); }
@@ -595,33 +605,49 @@ async function openDoc() {
   let f; try { f = (await window.host.openFiles({ filters: [['Chartout diagram', ['chartout', 'json']]] }))[0]; } catch (e) { toast(cleanErr(e), 6000); return; }
   if (!f) return;
   let d; try { d = parseDoc(f.data); } catch (e) { toast(`Cannot open "${f.name}": ${e.message}`, 6000); return; }
-  doc = d; fileName = f.name; sel.clear(); undoS = []; redoS = []; savedSnap = snapshot(); fit(); render();
+  const fixed = d.repaired; delete d.repaired;
+  // a repaired diagram counts as unsaved, so closing asks and saving writes the repaired version
+  doc = d; fileName = f.name; sel.clear(); undoS = []; redoS = []; savedSnap = fixed ? '' : snapshot(); fit(); render();
+  if (fixed) toast('Some items in this file were repaired.', 6000);
 }
 const HEX = /^#[0-9a-f]{6}$/i;
 const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : typeof v === 'string' && v.trim() && isFinite(+v) ? +v : d);
 const POS = 1e6;
-const plain = (t) => (typeof t === 'string' ? t : typeof t === 'number' ? String(t) : '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, 5000);
-const cleanShape = (s) => ({ id: String(s.id), type: SHAPES.some((x) => x[0] === s.type) ? s.type : 'process', x: clamp(num(s.x, 0), -POS, POS), y: clamp(num(s.y, 0), -POS, POS), w: clamp(num(s.w, 100), SIZE_MIN, SIZE_MAX), h: clamp(num(s.h, 60), SIZE_MIN, SIZE_MAX), text: plain(s.text), fill: HEX.test(s.fill) || s.fill === 'none' ? s.fill : '#ffffff', stroke: HEX.test(s.stroke) ? s.stroke : '#3a3a3a', fs: clamp(num(s.fs, 14), 6, 96) });
-// read a .chartout file; anything odd in it is repaired or dropped, and a file that is not a diagram gives a plain message
+// text keeps its length, tabs, line breaks (\r\n too) and emoji; only invisible control characters go
+const plain = (t) => (typeof t === 'string' ? t : typeof t === 'number' ? String(t) : '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+const cleanShape = (s) => ({ id: String(s.id), type: SHAPES.some((x) => x[0] === s.type) ? s.type : 'process', x: clamp(num(s.x, 0), -POS, POS), y: clamp(num(s.y, 0), -POS, POS), w: clamp(num(s.w, 100), SIZE_MIN, POS), h: clamp(num(s.h, 60), SIZE_MIN, POS), text: plain(s.text), fill: HEX.test(s.fill) || s.fill === 'none' ? s.fill : '#ffffff', stroke: HEX.test(s.stroke) ? s.stroke : '#3a3a3a', fs: clamp(num(s.fs, 14), 6, 96) });
+// the cleaned object with its keys in the order the file had them, so an unchanged file saves back byte for byte
+const inOrder = (c, raw) => { const o = {}; for (const k of Object.keys(raw)) if (k in c) o[k] = c[k]; return Object.assign(o, c); };
+// read a .chartout file; anything odd in it is repaired or dropped (and .repaired is set), and a file that is not a diagram gives a plain message
 function parseDoc(bytes) {
   const txt = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
   if (!txt.trim()) throw new Error('the file is empty.');
   let d; try { d = JSON.parse(txt); } catch { throw new Error('this is not a Chartout diagram, or the file is damaged.'); }
   if (!d || typeof d !== 'object' || Array.isArray(d) || !Array.isArray(d.shapes) || (d.edges !== undefined && !Array.isArray(d.edges))) throw new Error('this is not a Chartout diagram, or the file is damaged.');
-  const ids = new Set();
-  const shapes = d.shapes.filter((s) => s && typeof s === 'object' && !Array.isArray(s)).map((s) => {
-    const c = cleanShape(s); if (s.id === undefined || s.id === null || s.id === '' || ids.has(c.id) || typeof s.id === 'object') c.id = uid(); ids.add(c.id); return c; });
-  const pairs = new Set(), eids = new Set(shapes.map((s) => s.id)), edges = [];
+  const ids = new Set(); let repaired = false;
+  const keep = (c, raw) => { const o = inOrder(c, raw); if (JSON.stringify(o) !== JSON.stringify(raw)) repaired = true; return o; };
+  const shapes = [];
+  for (const s of d.shapes) {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) { repaired = true; continue; }
+    const c = cleanShape(s); if (s.id === undefined || s.id === null || s.id === '' || ids.has(c.id) || typeof s.id === 'object') c.id = uid(); ids.add(c.id); shapes.push(keep(c, s));
+  }
+  // two connectors between the same shapes are kept (older versions allowed them); only new ones are blocked while drawing
+  const eids = new Set(shapes.map((s) => s.id)), edges = [];
   for (const e of d.edges || []) {
-    if (!e || typeof e !== 'object') continue;
+    if (!e || typeof e !== 'object' || Array.isArray(e)) { repaired = true; continue; }
     const from = String(e.from), to = String(e.to);
-    if (!ids.has(from) || !ids.has(to) || from === to || pairs.has(from + '\u0000' + to)) continue;
-    pairs.add(from + '\u0000' + to);
+    if (!ids.has(from) || !ids.has(to) || from === to) { repaired = true; continue; }
     let id = String(e.id ?? ''); if (!id || typeof e.id === 'object' || eids.has(id)) id = uid(); eids.add(id);
     const c = { id, from, to, kind: e.kind === 'ortho' ? 'ortho' : 'line', label: plain(e.label), arrow: e.arrow === 'none' ? 'none' : 'end', stroke: HEX.test(e.stroke) ? e.stroke : '#9a9a9a' };
-    if (e.dash === true) c.dash = true; edges.push(c);
+    if (typeof e.dash === 'boolean') c.dash = e.dash; edges.push(keep(c, e));
   }
-  return { shapes, edges, title: plain(d.title).replace(/\n/g, ' ').trim().slice(0, 120) || 'Untitled' };
+  // the name is kept exactly as saved; only a name that is not text is replaced
+  let title = 'Untitled';
+  if (typeof d.title === 'string') { title = plain(d.title); if (title !== d.title) repaired = true; }
+  else if (d.title !== undefined) { title = plain(d.title).replace(/\n/g, ' ').trim() || 'Untitled'; repaired = true; }
+  const out = inOrder({ shapes, edges, title }, d);
+  if (repaired) Object.defineProperty(out, 'repaired', { value: true, configurable: true, enumerable: false });
+  return out;
 }
 async function saveDoc() {
   // what is written is the diagram as it is now; changes made while the Save dialog is open stay unsaved
@@ -631,7 +657,10 @@ async function saveDoc() {
   if (r) { savedSnap = snap; fileName = r.name; toast('Saved ' + r.name); renderStatus(); }
 }
 function exportSvgString() {
-  const b = doc.shapes.length ? bounds(doc.shapes) : { x: 0, y: 0, w: 200, h: 100 }; const pad = 30;
+  let b = doc.shapes.length ? bounds(doc.shapes) : { x: 0, y: 0, w: 200, h: 100 }; const pad = 30;
+  // labels below a shape (server, router...) and long text stick out of the shape box, so take what is really drawn too
+  if (doc.shapes.length) { const all = [b]; for (const g of [gShapes, gEdges]) { try { const r = g.getBBox(); if (r.width || r.height) all.push({ x: r.x, y: r.y, w: r.width, h: r.height }); } catch (_) {} }
+    const x0 = Math.min(...all.map((r) => r.x)), y0 = Math.min(...all.map((r) => r.y)); b = { x: x0, y: y0, w: Math.max(...all.map((r) => r.x + r.w)) - x0, h: Math.max(...all.map((r) => r.y + r.h)) - y0 }; }
   const root = sv('svg', { xmlns: NS, width: b.w + pad * 2, height: b.h + pad * 2, viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}` });
   root.append(sv('rect', { x: b.x - pad, y: b.y - pad, width: b.w + pad * 2, height: b.h + pad * 2, fill: '#ffffff' }));
   const d2 = defs.cloneNode(true); d2.querySelector('#gridp')?.remove(); root.append(d2);
@@ -690,7 +719,7 @@ function openTemplates() {
     const pv = sv('svg', { viewBox: `${b.x - 10} ${b.y - 10} ${b.w + 20} ${b.h + 20}`, 'aria-hidden': 'true', preserveAspectRatio: 'xMidYMid meet' });
     d.edges.forEach((e) => { const pd = edgePath(e, d.shapes); if (pd) pv.append(sv('path', { d: pd.d, fill: 'none', stroke: '#9a9a9a', 'stroke-width': 2, 'data-edge': '' })); });
     d.shapes.forEach((s) => { const prev = { ...s, text: '' }; pv.append(shapeEl(prev, true)); });
-    const card = h('button', { class: 'tcard', title: 'Use the ' + t.name + ' template', onclick: () => { if (!okToDiscard('Discard the unsaved changes and use this template?')) return; commit(); doc = d; sel.clear(); close(); render(); fit(); } },
+    const card = h('button', { class: 'tcard', title: 'Use the ' + t.name + ' template', onclick: () => { if (!okToDiscard('Discard the unsaved changes and use this template?')) return; commit(); doc = d; fileName = ''; sel.clear(); close(); render(); fit(); } },
       h('div', { class: 'thumb' }, pv), h('div', { class: 'tname', text: t.name }), h('div', { class: 'tsub', text: d.shapes.length + ' shapes, ' + d.edges.length + ' connectors' }));
     grid.append(card);
   });
@@ -731,4 +760,4 @@ window.addEventListener('resize', () => applyView());
 
 savedSnap = snapshot(); renderStatus();
 // main.js asks "Close without saving?" when this blocks the close
-window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => { if (hasUnsaved()) { e.preventDefault(); e.returnValue = ''; } });

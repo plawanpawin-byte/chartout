@@ -59,9 +59,12 @@ ipcMain.handle('file:open', async (_e, opts = {}) => {
     try {
       const st = fs.statSync(p);
       const item = { id: grant(p), name: n, size: st.size };
-      if (opts.read !== false && st.size <= (opts.maxBytes || 512 * 1024 * 1024)) item.data = fs.readFileSync(p);
+      if (opts.read !== false) {
+        if (st.size > (opts.maxBytes || 512 * 1024 * 1024)) throw Object.assign(new Error('the file is too large.'), { code: 'ETOOBIG' });
+        item.data = fs.readFileSync(p);
+      }
       out.push(item);
-    } catch (e) { throw new Error(`Cannot open "${n}": ` + (e.code === 'ENOENT' ? 'the file is gone.' : e.code === 'EISDIR' ? 'it is a folder.' : /^E(PERM|ACCES|BUSY)$/.test(e.code) ? 'it is locked or you do not have access.' : e.message)); }
+    } catch (e) { throw new Error(`Cannot open "${n}": ` + (e.code === 'ENOENT' ? 'the file is gone.' : e.code === 'EISDIR' ? 'it is a folder.' : e.code === 'ETOOBIG' ? e.message : /^E(PERM|ACCES|BUSY)$/.test(e.code) ? 'it is locked or you do not have access.' : e.message)); }
   }
   return out;
 });
@@ -71,10 +74,21 @@ function safeName(n) {
   return /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i.test(t) || !t ? '_' + t : t;
 }
 
-// write to a temporary file next to the target, then rename it over the target, so a failed save never leaves a half-written file
+// rename, trying again for a moment when Windows reports the target busy (a virus scanner or indexer can hold it briefly)
+function renameRetry(a, b) {
+  for (let i = 0; ; i++) {
+    try { return fs.renameSync(a, b); }
+    catch (e) { if (i >= 4 || !/^E(PERM|BUSY)$/.test(e.code)) throw e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40 * (i + 1)); }
+  }
+}
+// write to a temporary file next to the target, flush it to disk, then rename it over the target, so a failed save or a power cut never leaves a half-written file
 function writeSafe(p, data) {
   const n = path.basename(p), tmp = p + '.chartout-' + process.pid + '.tmp';
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, p); }
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeFileSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    renameRetry(tmp, p);
+  }
   catch (e) {
     try { fs.unlinkSync(tmp); } catch (_) {}
     if (/^E(PERM|ACCES|BUSY)$/.test(e.code)) throw new Error(`Cannot save "${n}": the file is read-only or open in another program. Choose another name, or close it there first.`);
