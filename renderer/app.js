@@ -15,7 +15,9 @@ const NS = 'http://www.w3.org/2000/svg';
 const sv = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
 const uid = () => Math.random().toString(36).slice(2, 9);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const toast = (m) => { const t = h('div', { class: 'toast', text: m }); document.body.append(t); setTimeout(() => t.remove(), 2400); };
+const toast = (m, ms = 2400) => { const t = h('div', { class: 'toast', text: m }); document.body.append(t); setTimeout(() => t.remove(), ms); };
+// IPC errors arrive as "Error invoking remote method 'x': Error: message"; keep only the message
+const cleanErr = (e) => String((e && e.message) || e).replace(/Error invoking remote method '[^']*': (?:\w*Error: )?/g, '');
 
 // ---------- model ----------
 const SHAPES = [
@@ -45,71 +47,204 @@ let fileName = '';
 let style = { fill: '#ffffff', stroke: '#3a3a3a', fs: 14 };
 
 const snapshot = () => JSON.stringify(doc);
-function commit() { undoS.push(snapshot()); if (undoS.length > 100) undoS.shift(); redoS = []; }
-function undo() { if (!undoS.length) return; redoS.push(snapshot()); doc = JSON.parse(undoS.pop()); sel.clear(); render(); }
-function redo() { if (!redoS.length) return; undoS.push(snapshot()); doc = JSON.parse(redoS.pop()); sel.clear(); render(); }
+let savedSnap = null;         // the diagram as last saved or opened; null until the start-up diagram is drawn
+const isDirty = () => savedSnap !== null && snapshot() !== savedSnap;
+// ask before throwing away unsaved changes (New, Open, Templates); a saved or untouched diagram goes without asking
+const okToDiscard = (msg) => !isDirty() || confirm(msg);
+// typed but not yet applied: an open text or label dialog, or a size box, whose value differs from what it started with
+const pendingEdit = () => [...document.querySelectorAll('[data-orig]')].some((n) => n.isConnected && n.value !== n.dataset.orig);
+const hasUnsaved = () => isDirty() || pendingEdit();
+// the shortcut letter; on layouts without Latin letters (Thai, Russian) fall back to the physical key
+const keyOf = (e) => { const k = (e.key || '').toLowerCase(); return /^[a-z]$/.test(k) || !/^Key[A-Z]$/.test(e.code || '') ? k : e.code.slice(3).toLowerCase(); };
+// commit(before) records an undo step; pass the snapshot taken before a change that is already made
+function commit(before = snapshot()) { undoS.push(before); if (undoS.length > 100) undoS.shift(); redoS = []; }
+// runs a change and records an undo step only when the diagram really changed
+function edit(fn) { const before = snapshot(); fn(); if (snapshot() !== before) commit(before); render(); }
+function undo() { if (!undoS.length) return; cancelDrag(); redoS.push(snapshot()); doc = JSON.parse(undoS.pop()); sel.clear(); render(); }
+function redo() { if (!redoS.length) return; cancelDrag(); undoS.push(snapshot()); doc = JSON.parse(redoS.pop()); sel.clear(); render(); }
 
 // ---------- UI ----------
+// Material Symbols (Outlined) style icons, fill-based, on a 24px grid. Path data in the style of Google's Material icons (Apache-2.0).
+const ICONS = {
+  newdoc: 'M13 11h-2v3H8v2h3v3h2v-3h3v-2h-3zm1-9H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z',
+  open: 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
+  save: 'M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm2 16H5V5h11.17L19 7.83V19zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zM6 6h9v4H6z',
+  undo: 'M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z',
+  redo: 'M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z',
+  templates: 'M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8zm6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z',
+  download: 'M18 15v3H6v-3H4v3c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3h-2zm-1-4l-1.41-1.41L13 12.17V4h-2v8.17L8.41 9.59 7 11l5 5 5-5z',
+  image: 'M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z',
+  code: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z',
+  keyboard: 'M20 7v10H4V7h16m0-2H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zm-3 0h2v2H5zm0-3h2v2H5zm3 6h8v2H8zm6-3h2v2h-2zm0-3h2v2h-2zm3 3h2v2h-2zm0-3h2v2h-2z',
+  panl: 'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 19H5V5h4v14zm10 0h-8V5h8v14z',
+  panr: 'M5 3h14c1.1 0 2 .9 2 2v14c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2zm10 16h4V5h-4v14zM5 19h8V5H5v14z',
+  select: 'M6 3.5v15.2l4-3.9 2.6 5.9 2.7-1.2-2.6-5.8h5.6z',
+  hand: 'M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4c0-.83.67-1.5 1.5-1.5S11 3.17 11 4v7h1V1.5c0-.83.67-1.5 1.5-1.5S15 .67 15 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z',
+  connector: 'M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5z',
+  zout: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM7 9h5v1H7z',
+  zin: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM12 10h-2v2H9v-2H7V9h2V7h1v2h2v1z',
+  fit: 'M17 4h3c1.1 0 2 .9 2 2v2h-2V6h-3V4zM4 8V6h3V4H4c-1.1 0-2 .9-2 2v2h2zm16 8v2h-3v2h3c1.1 0 2-.9 2-2v-2h-2zM7 18H4v-2H2v2c0 1.1.9 2 2 2h3v-2zM16 8H8c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h8c.55 0 1-.45 1-1V9c0-.55-.45-1-1-1zm-1 6H9v-4h6v4z',
+  copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
+  paste: 'M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z',
+  dupe: 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zm-7-2h2v-3h3V9h-3V6h-2v3h-3v2h3z',
+  del: 'M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z',
+  front: 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm2 4v-2H3c0 1.1.89 2 2 2zM3 9h2V7H3v2zm12 12h2v-2h-2v2zm4-18H9c-1.11 0-2 .9-2 2v10c0 1.1.89 2 2 2h10c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H9V5h10v10zm-8 6h2v-2h-2v2zm-4 0h2v-2H7v2z',
+  back: 'M9 7H7v2h2V7zm0 4H7v2h2v-2zm0-8c-1.11 0-2 .9-2 2h2V3zm4 12h-2v2h2v-2zm6-12v2h2c0-1.1-.9-2-2-2zm-6 0h-2v2h2V3zM9 17v-2H7c0 1.1.89 2 2 2zm10-4h2v-2h-2v2zm0-4h2V7h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zM5 7H3v12c0 1.1.89 2 2 2h12v-2H5V7zm10-2h2V3h-2v2zm0 12h2v-2h-2v2z',
+  search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+  close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+};
+// one fill-based 24px icon; evenodd keeps cut-outs open
+const fillIcon = (d, size = 20) => { const s = sv('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'currentColor', 'aria-hidden': 'true', class: 'ms' }); s.append(sv('path', { d, 'fill-rule': 'evenodd' })); return s; };
+const icon = (name, size = 20) => fillIcon(ICONS[name] || ICONS.newdoc, size);
+
 const app = $('#app');
 const toolbar = h('div', { class: 'toolbar' });
-const left = h('div', { class: 'sidebar' });
-const stage = h('div', { class: 'stage', style: 'overflow:hidden;cursor:default' });
-const right = h('div', { class: 'sidebar right' });
+const left = h('div', { class: 'sidebar', style: 'width:232px' });
+const stage = h('div', { class: 'stage', style: 'overflow:hidden;position:relative;padding:0;cursor:default' });
+const right = h('div', { class: 'sidebar right', style: 'width:256px' });
 const status = h('div', { class: 'status' });
-app.append(toolbar, h('div', { class: 'main' }, left, stage, right), status);
+app.append(toolbar, h('div', { class: 'main', style: 'flex:1;min-height:0;min-width:0;width:100%;overflow:hidden' }, left, stage, right), status);
 const btn = (label, fn, cls = '') => h('button', { class: 'btn ' + cls, onclick: fn, text: label });
-const bSelect = btn('Select', () => setTool('select'));
-const bConn = btn('Connector', () => setTool('connect'));
-const bPan = btn('Hand', () => setTool('pan'));
-toolbar.append(btn('New', newDoc), btn('Templates', openTemplates), btn('Open', openDoc), btn('Save', saveDoc, 'primary'), h('span', { class: 'sep' }), bSelect, bConn, bPan, h('span', { class: 'sep' }),
-  btn('Undo', undo), btn('Redo', redo), h('span', { class: 'sep' }), btn('Copy', copy), btn('Paste', paste), btn('Duplicate', dupe), btn('Delete', del), h('span', { class: 'sep' }),
-  btn('Front', () => order(1)), btn('Back', () => order(-1)), h('span', { class: 'sep' }),
-  btn('-', () => zoomBy(1 / 1.2), 'icon'), btn('+', () => zoomBy(1.2), 'icon'), btn('Fit', fit), h('span', { class: 'grow' }),
-  btn('Export PNG', () => exportImg('png')), btn('Export SVG', () => exportImg('svg')));
-function setTool(t) { tool = t; [[bSelect, 'select'], [bConn, 'connect'], [bPan, 'pan']].forEach(([b, k]) => b.classList.toggle('on', k === t)); stage.style.cursor = t === 'pan' ? 'grab' : t === 'connect' ? 'crosshair' : 'default'; }
-setTool('select');
+// top-bar button: our own fill icon (data-for tells kit.js not to add its line icon) + a label kit.js hides unless "Aa" is on
+function tbtn(label, ic, fn, cls = '', tip = label) {
+  // after a mouse click the button lets go of focus, so a later Space pans the canvas instead of pressing the button again
+  const b = h('button', { class: 'btn ' + cls, onclick: (e) => { if (e.detail > 0) b.blur(); fn(e); }, title: tip, 'aria-label': label });
+  const i = icon(ic, 20); i.classList.add('ic'); i.dataset.for = label; b.append(i, document.createTextNode(label)); return b;
+}
+// editable diagram name in the top bar (like NotebookLM): Enter keeps it, Escape puts the old name back
+// one name edit is one undo step: titleSnap is the diagram when editing started
+let titleOld = null, titleSnap = null;
+function titleDone() { if (titleSnap !== null && snapshot() !== titleSnap) commit(titleSnap); titleOld = null; titleSnap = null; renderStatus(); }
+const titleInput = h('input', { type: 'text', class: 'tbtitle', maxlength: 120, title: 'Diagram name', 'aria-label': 'Diagram name', placeholder: 'Untitled',
+  onfocus: () => { if (titleOld === null) { titleOld = doc.title || ''; titleSnap = snapshot(); } }, onblur: () => { if (document.hasFocus()) titleDone(); },
+  oninput: (e) => { doc.title = e.target.value; renderStatus(); },
+  onchange: (e) => { if (!e.target.value.trim()) { doc.title = 'Untitled'; e.target.value = doc.title; } },
+  onkeydown: (e) => {
+    e.stopPropagation();
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && ['s', 'o'].includes(keyOf(e))) { e.preventDefault(); const k = keyOf(e); e.target.blur(); if (k === 's') saveDoc(); else openDoc(); return; }
+    if (e.key === 'Enter') e.target.blur();
+    if (e.key === 'Escape') { if (titleOld !== null) doc.title = titleOld; e.target.value = doc.title; e.target.blur(); }
+  } });
+// a click anywhere else (the floating bars keep focus on purpose) ends editing the name, so keys go to the canvas again
+document.addEventListener('pointerdown', (e) => { if (document.activeElement === titleInput && e.target !== titleInput) titleInput.blur(); }, true);
+function syncTitle() { if (document.activeElement !== titleInput) titleInput.value = doc.title || ''; }
+// small menus (Export) anchored under a button; Esc, an outside click or focus leaving closes them
+let fly = null, flyAnchor = null;
+function closeFly(refocus) { if (fly) { fly.remove(); fly = null; } const a = flyAnchor; flyAnchor = null; if (refocus && a && a.isConnected) a.focus(); }
+function openMenu(anchor, id, items, kb) {
+  const was = fly && fly.dataset.g === 'menu:' + id; closeFly(); if (was) return;
+  fly = h('div', { class: 'fly menu', role: 'menu', 'data-g': 'menu:' + id });
+  for (const [ic, label, fn] of items) fly.append(h('button', { class: 'fi', role: 'menuitem', onclick: () => { closeFly(); fn(); } }, icon(ic, 20), h('span', { class: 'fl', text: label })));
+  fly.style.position = 'fixed'; document.body.append(fly);
+  const r = anchor.getBoundingClientRect(), w = fly.offsetWidth;
+  fly.style.top = (r.bottom + 6) + 'px'; fly.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + 'px';
+  flyAnchor = anchor; if (kb) fly.classList.add('kb'); fly.querySelector('.fi').focus();
+}
+document.addEventListener('pointerdown', (e) => { if (fly && !fly.contains(e.target) && !e.target.closest('[data-menu]')) closeFly(); }, true);
+document.addEventListener('focusin', (e) => { if (fly && !fly.contains(e.target) && !e.target.closest('[data-menu]')) closeFly(); });
+document.addEventListener('keydown', (e) => {
+  if (!fly) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFly(true); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const l = [...fly.querySelectorAll('.fi')], i = l.indexOf(document.activeElement); l[(i + (e.key === 'ArrowDown' ? 1 : l.length - 1)) % l.length].focus(); fly.classList.add('kb'); e.preventDefault(); e.stopPropagation(); }
+}, true);
+const exportBtn = tbtn('Export', 'download', (e) => openMenu(e.currentTarget, 'export', [['image', 'Export PNG', () => exportImg('png')], ['code', 'Export SVG', () => exportImg('svg')]], e.detail === 0), '', 'Export as a picture');
+exportBtn.dataset.menu = 'export'; exportBtn.setAttribute('aria-haspopup', 'menu');
+toolbar.append(titleInput, h('span', { class: 'grow' }),
+  tbtn('New', 'newdoc', newDoc, '', 'New diagram'), tbtn('Open', 'open', openDoc, '', 'Open a file (Ctrl+O)'),
+  tbtn('Undo', 'undo', undo, '', 'Undo (Ctrl+Z)'), tbtn('Redo', 'redo', redo, '', 'Redo (Ctrl+Y)'),
+  exportBtn, tbtn('Keyboard shortcuts', 'keyboard', () => showHelp(), '', 'Keyboard shortcuts (?)'),
+  tbtn('Templates', 'templates', openTemplates, 'primary tonal', 'Start from a template'), tbtn('Save', 'save', saveDoc, 'primary', 'Save (Ctrl+S)'));
 
-// left palette
-LIBS.forEach(([gname, list]) => {
-left.append(h('h3', { text: gname }));
-const pal = h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px' });
-list.forEach(([k, n]) => {
-  const prev = sv('svg', { viewBox: '0 0 60 40', width: 60, height: 40 });
+// floating toolbars on the canvas: tools and zoom at the bottom, selection actions at the top
+// (mouse clicks on them keep the keyboard focus where it was, so Delete and the other keys keep working)
+const dk = (ic, label, key, fn) => h('button', { class: 'dk', title: label + (key ? ' (' + key + ')' : ''), 'aria-label': label, onclick: fn, onpointerdown: (e) => e.preventDefault() }, icon(ic, 20));
+const bSelect = dk('select', 'Select', 'V', () => setTool('select'));
+const bConn = dk('connector', 'Connector', 'C', () => setTool('connect'));
+const bPan = dk('hand', 'Hand', 'H', () => setTool('pan'));
+const zoomPct = h('button', { class: 'zk zpct', title: 'Zoom to 100%', 'aria-label': 'Zoom to 100%', onclick: () => { zoomBy(1 / zoom); zoom = 1; applyView(); }, onpointerdown: (e) => e.preventDefault(), text: '100%' });
+const dock = h('div', { class: 'dock', role: 'toolbar', 'aria-label': 'Canvas tools' },
+  h('div', { class: 'dg' }, bSelect, bConn, bPan),
+  h('div', { class: 'dg' }, dk('zout', 'Zoom out', '', () => zoomBy(1 / 1.2)), zoomPct, dk('zin', 'Zoom in', '', () => zoomBy(1.2)), dk('fit', 'Fit to screen', '', () => fit())));
+const SB = { copy: dk('copy', 'Copy', 'Ctrl+C', () => copy()), paste: dk('paste', 'Paste', 'Ctrl+V', () => paste()), dupe: dk('dupe', 'Duplicate', 'Ctrl+D', () => dupe()), del: dk('del', 'Delete', 'Del', () => del()),
+  front: dk('front', 'Bring to front', '', () => order(1)), back: dk('back', 'Send to back', '', () => order(-1)) };
+const selbar = h('div', { class: 'selbar', role: 'toolbar', 'aria-label': 'Selection' }, h('div', { class: 'dg' }, SB.copy, SB.paste, SB.dupe, SB.del), h('div', { class: 'dg' }, SB.front, SB.back));
+function refreshSel() {
+  const shapes = doc.shapes.some((s) => sel.has(s.id)), any = shapes || doc.edges.some((e) => sel.has(e.id));
+  for (const k of ['copy', 'dupe', 'front', 'back']) SB[k].disabled = !shapes;
+  SB.del.disabled = !any; SB.paste.disabled = !clip;
+}
+function setTool(t) {
+  tool = t; [[bSelect, 'select'], [bConn, 'connect'], [bPan, 'pan']].forEach(([b, k]) => { b.classList.toggle('on', k === t); b.setAttribute('aria-pressed', k === t ? 'true' : 'false'); });
+  stage.style.cursor = t === 'pan' ? 'grab' : t === 'connect' ? 'crosshair' : 'default';
+}
+setTool('select');
+// NotebookLM-style panel header: title + a round button that folds the panel away (the kit.js grip brings it back)
+function phead(title, side) {
+  const hide = 'Hide ' + title.toLowerCase() + ' panel';
+  return h('div', { class: 'phead' }, h('h2', { class: 'ptitle', text: title }),
+    h('button', { class: 'pbtn', title: hide, 'aria-label': hide, onclick: () => { if (window.lkPanel) window.lkPanel(side); } }, icon(side === 'left' ? 'panl' : 'panr', 20)));
+}
+
+// left panel: shape libraries as chips, plus a search over all of them
+let shapeCat = 'Flowchart', shapeQ = '';
+const searchIn = h('input', { type: 'search', class: 'ssearch', placeholder: 'Search shapes', 'aria-label': 'Search shapes', oninput: (e) => { shapeQ = e.target.value; renderShapes(); },
+  onkeydown: (e) => { if (e.key === 'Escape' && e.target.value) { e.target.value = ''; shapeQ = ''; renderShapes(); e.stopPropagation(); } } });
+const chips = h('div', { class: 'chips', role: 'tablist', 'aria-label': 'Shape libraries' });
+const shapeList = h('div', { class: 'shapes' });
+left.append(phead('Shapes', 'left'), h('label', { class: 'sbox' }, icon('search', 20), searchIn), chips, shapeList);
+function shapeCard(k, n) {
+  const prev = sv('svg', { viewBox: '0 0 60 40', width: 60, height: 40, 'aria-hidden': 'true' });
   prev.append(shapeEl({ type: k, x: 5, y: 5, w: 50, h: 30, preview: 1, fill: '#d0d0d0', stroke: '#8a8a8a', text: '', fs: 10 }, true));
-  const c = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 6px;font-size:11px;height:auto', draggable: 'true', onclick: () => addShape(k) }, prev, h('span', { text: n }));
+  const c = h('button', { class: 'scard', draggable: 'true', title: n + ': click to add, or drag onto the canvas', 'aria-label': 'Add ' + n, onclick: (e) => { addShape(k); if (e.detail > 0) c.blur(); } }, prev, h('span', { text: n }));
   c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'shape:' + k));
-  pal.append(c);
-});
-left.append(pal);
-});
-left.append(h('h3', { text: 'Canvas' }),
-  h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { grid = e.target.checked; render(); } }), 'Show grid'),
-  h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { snap = e.target.checked; } }), 'Snap to grid'));
+  c.addEventListener('dragend', () => c.blur());
+  return c;
+}
+function renderShapes() {
+  const q = shapeQ.trim().toLowerCase();
+  chips.textContent = '';
+  for (const [g] of LIBS) { const on = g === shapeCat && !q; chips.append(h('button', { class: 'chip' + (on ? ' on' : ''), role: 'tab', 'aria-selected': on ? 'true' : 'false', onclick: () => { shapeCat = g; searchIn.value = ''; shapeQ = ''; renderShapes(); }, text: g })); }
+  shapeList.textContent = '';
+  const groups = q ? LIBS.map(([g, l]) => [g, l.filter(([k, n]) => n.toLowerCase().includes(q) || k.includes(q))]).filter(([, l]) => l.length) : LIBS.filter(([g]) => g === shapeCat);
+  if (!groups.length) shapeList.append(h('div', { class: 'muted sempty', text: 'No shapes match "' + shapeQ.trim() + '".' }));
+  for (const [g, list] of groups) { if (q) shapeList.append(h('h3', { text: g })); shapeList.append(h('div', { class: 'sgrid' }, list.map(([k, n]) => shapeCard(k, n)))); }
+}
+renderShapes();
 
 // canvas
 const svg = sv('svg', { width: '100%', height: '100%', style: 'display:block;touch-action:none' });
 const defs = sv('defs');
-defs.innerHTML = '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker><pattern id="gridp" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#3a3a3a" stroke-width="0.6"/></pattern>';
+defs.innerHTML = '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker><pattern id="gridp" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#2f3133" stroke-width="0.6"/></pattern>';
 const world = sv('g');
-const gridRect = sv('rect', { x: -20000, y: -20000, width: 40000, height: 40000, fill: 'url(#gridp)' });
+const gridRect = sv('rect', { x: -2000, y: -2000, width: 4000, height: 4000, fill: 'url(#gridp)' });
 const gShapes = sv('g'), gEdges = sv('g'), gUI = sv('g');
 world.append(gridRect, gEdges, gShapes, gUI);
 svg.append(defs, world);
-stage.append(svg);
+stage.append(svg, selbar, dock);
 stage.ondragover = (e) => e.preventDefault();
 stage.ondrop = (e) => { e.preventDefault(); const d = e.dataTransfer.getData('text/plain'); if (d.startsWith('shape:')) { const p = toWorld(e); addShape(d.slice(6), p.x, p.y); } };
 
 const toWorld = (e) => { const r = svg.getBoundingClientRect(); return { x: (e.clientX - r.left - panX) / zoom, y: (e.clientY - r.top - panY) / zoom }; };
 const sn = (v) => (snap ? Math.round(v / 10) * 10 : v);
-function applyView() { world.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`); gridRect.style.display = grid ? '' : 'none'; renderStatus(); }
-function zoomBy(f, cx, cy) { const r = svg.getBoundingClientRect(); cx = cx ?? r.width / 2; cy = cy ?? r.height / 2; const nz = clamp(zoom * f, 0.1, 5); panX = cx - (cx - panX) * (nz / zoom); panY = cy - (cy - panY) * (nz / zoom); zoom = nz; applyView(); }
-function fit() {
-  if (!doc.shapes.length) { zoom = 1; panX = 40; panY = 40; applyView(); return; }
-  const b = bounds(doc.shapes); const r = svg.getBoundingClientRect();
-  zoom = clamp(Math.min((r.width - 80) / b.w, (r.height - 80) / b.h), 0.1, 2);
-  panX = (r.width - b.w * zoom) / 2 - b.x * zoom; panY = (r.height - b.h * zoom) / 2 - b.y * zoom; applyView();
+const ZMIN = 0.01, ZMAX = 5;
+function applyView() {
+  world.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`);
+  // the grid covers just the visible area (so it follows far pans), and is hidden when zoomed out so far that it would be a blur
+  const show = grid && zoom >= 0.2; gridRect.style.display = show ? '' : 'none';
+  if (show) { const r = svg.getBoundingClientRect(), x = Math.floor(-panX / zoom / 20) * 20 - 40, y = Math.floor(-panY / zoom / 20) * 20 - 40;
+    gridRect.setAttribute('x', x); gridRect.setAttribute('y', y); gridRect.setAttribute('width', Math.ceil((r.width || 2000) / zoom) + 80); gridRect.setAttribute('height', Math.ceil((r.height || 2000) / zoom) + 80); }
+  renderStatus();
 }
-const bounds = (list) => { const x0 = Math.min(...list.map((s) => s.x)), y0 = Math.min(...list.map((s) => s.y)), x1 = Math.max(...list.map((s) => s.x + s.w)), y1 = Math.max(...list.map((s) => s.y + s.h)); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
+function zoomBy(f, cx, cy) { const r = svg.getBoundingClientRect(); cx = cx ?? r.width / 2; cy = cy ?? r.height / 2; const nz = clamp(zoom * f, Math.min(ZMIN, zoom), ZMAX); panX = cx - (cx - panX) * (nz / zoom); panY = cy - (cy - panY) * (nz / zoom); zoom = nz; applyView(); }
+const FIT = { top: 68, bottom: 76, side: 40 }; // keeps fitted shapes clear of the selection bar (top) and the dock (bottom)
+function fit() {
+  if (!doc.shapes.length) { zoom = 1; panX = FIT.side; panY = FIT.top; applyView(); return; }
+  const b = bounds(doc.shapes); const r = svg.getBoundingClientRect(); const ih = r.height - FIT.top - FIT.bottom;
+  zoom = clamp(Math.min((r.width - FIT.side * 2) / Math.max(1, b.w), ih / Math.max(1, b.h)), ZMIN, 2);
+  panX = (r.width - b.w * zoom) / 2 - b.x * zoom; panY = FIT.top + (ih - b.h * zoom) / 2 - b.y * zoom; applyView();
+}
+// a plain loop: Math.min(...list) runs out of stack on very large diagrams
+const bounds = (list) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const s of list) { if (s.x < x0) x0 = s.x; if (s.y < y0) y0 = s.y; if (s.x + s.w > x1) x1 = s.x + s.w; if (s.y + s.h > y1) y1 = s.y + s.h; } return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
 
 // ---------- shapes ----------
 function shapeEl(s, preview = false) {
@@ -174,14 +309,24 @@ function textColor(fill, type) {
   return l > 140 ? '#1a1a1a' : '#f2f2f2';
 }
 const meas = document.createElement('canvas').getContext('2d');
+// word and letter breaks that also work for Thai (no spaces between words) and keep marks with their letter
+const segWord = Intl.Segmenter ? new Intl.Segmenter('th', { granularity: 'word' }) : null;
+const segChar = Intl.Segmenter ? new Intl.Segmenter('th', { granularity: 'grapheme' }) : null;
+const words = (t) => (segWord ? [...segWord.segment(t)].map((x) => x.segment) : t.split(/(\s+)/).filter(Boolean));
+const letters = (t) => (segChar ? [...segChar.segment(t)].map((x) => x.segment) : [...t]);
 function wrap(text, maxW, fs) {
   meas.font = `${fs}px Segoe UI, Arial, sans-serif`;
+  const fits = (t) => meas.measureText(t).width <= maxW;
   const out = [];
   for (const para of text.split('\n')) {
     let line = '';
-    for (const word of para.split(' ')) {
-      const t = line ? line + ' ' + word : word;
-      if (meas.measureText(t).width > maxW && line) { out.push(line); line = word; } else line = t;
+    for (const wd of words(para)) {
+      if (fits(line + wd)) { line += wd; continue; }
+      if (!wd.trim()) { out.push(line); line = ''; continue; } // break at a space and drop it
+      if (line.trim()) out.push(line.replace(/\s+$/, ''));
+      line = '';
+      if (fits(wd)) { line = wd; continue; }
+      for (const c of letters(wd)) { if (line && !fits(line + c)) { out.push(line); line = c; } else line += c; } // a word longer than the line
     }
     out.push(line);
   }
@@ -199,8 +344,8 @@ function edgePoint(s, toward) {
   else t = Math.min(hw / Math.abs(dx || 1e-9), hh / Math.abs(dy || 1e-9));
   return { x: c.x + dx * t, y: c.y + dy * t };
 }
-function edgePath(e) {
-  const a = doc.shapes.find((s) => s.id === e.from), b = doc.shapes.find((s) => s.id === e.to); if (!a || !b) return null;
+function edgePath(e, shapes = doc.shapes) {
+  const a = shapes.find((s) => s.id === e.from), b = shapes.find((s) => s.id === e.to); if (!a || !b) return null;
   const ca = centerOf(a), cb = centerOf(b);
   if (e.kind === 'ortho') {
     const vgap = Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h)), hgap = Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w));
@@ -216,15 +361,16 @@ function edgePath(e) {
 }
 
 // ---------- render ----------
-function render() {
+// keepPanel: redraw the canvas but leave the Details panel alone (so a slider being dragged keeps working)
+function render(keepPanel = false) {
   gShapes.textContent = ''; gEdges.textContent = ''; gUI.textContent = '';
   for (const e of doc.edges) {
     const p = edgePath(e); if (!p) continue;
     const g = sv('g'); g.dataset.id = e.id; g.dataset.kind = 'edge';
     g.append(sv('path', { d: p.d, fill: 'none', stroke: 'transparent', 'stroke-width': 12 }));
-    g.append(sv('path', { d: p.d, fill: 'none', stroke: sel.has(e.id) ? '#ffffff' : e.stroke || '#9a9a9a', 'stroke-width': sel.has(e.id) ? 2.6 : 1.8, 'marker-end': e.arrow === 'none' ? '' : 'url(#arr)', 'stroke-dasharray': e.dash ? '6 4' : '' }));
+    const ep = sv('path', { d: p.d, fill: 'none', stroke: sel.has(e.id) ? '#a8c7fa' : e.stroke || '#9a9a9a', 'stroke-width': sel.has(e.id) ? 2.6 : 1.8, 'marker-end': e.arrow === 'none' ? '' : 'url(#arr)', 'stroke-dasharray': e.dash ? '6 4' : '' }); if (sel.has(e.id)) ep.dataset.sel = e.stroke || '#9a9a9a'; g.append(ep);
     if (e.label) {
-      const w = e.label.length * 7 + 10;
+      meas.font = '12px Segoe UI, Arial, sans-serif'; const w = Math.ceil(meas.measureText(e.label).width) + 14;
       g.append(sv('rect', { x: p.label.x - w / 2, y: p.label.y - 10, width: w, height: 20, fill: '#262626', rx: 3 }));
       const t = sv('text', { x: p.label.x, y: p.label.y, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: '#d6d6d6', 'font-size': 12, 'font-family': 'Segoe UI, Arial, sans-serif' }); t.textContent = e.label; g.append(t);
     }
@@ -232,45 +378,61 @@ function render() {
   }
   for (const s of doc.shapes) {
     const g = shapeEl(s); g.dataset.id = s.id; g.dataset.kind = 'shape';
-    if (sel.has(s.id)) g.append(sv('rect', { x: s.x - 3, y: s.y - 3, width: s.w + 6, height: s.h + 6, fill: 'none', stroke: '#e0e0e0', 'stroke-dasharray': '4 3', 'pointer-events': 'none' }));
+    if (sel.has(s.id)) g.append(sv('rect', { x: s.x - 3, y: s.y - 3, width: s.w + 6, height: s.h + 6, fill: 'none', stroke: '#a8c7fa', 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'data-sel': '1', 'pointer-events': 'none' }));
     gShapes.append(g);
   }
   drawHandles();
-  applyView(); renderRight(); renderStatus();
+  applyView(); if (!keepPanel) renderRight(); renderStatus(); syncTitle(); refreshSel();
 }
 function drawHandles() {
   const ss = doc.shapes.filter((s) => sel.has(s.id)); if (ss.length !== 1) return;
   const s = ss[0];
   const pts = { nw: [s.x, s.y], n: [s.x + s.w / 2, s.y], ne: [s.x + s.w, s.y], e: [s.x + s.w, s.y + s.h / 2], se: [s.x + s.w, s.y + s.h], s: [s.x + s.w / 2, s.y + s.h], sw: [s.x, s.y + s.h], w: [s.x, s.y + s.h / 2] };
   const cur = { nw: 'nwse', se: 'nwse', ne: 'nesw', sw: 'nesw', n: 'ns', s: 'ns', e: 'ew', w: 'ew' };
-  for (const [k, [px, py]] of Object.entries(pts)) { const r = sv('rect', { x: px - 4 / zoom, y: py - 4 / zoom, width: 8 / zoom, height: 8 / zoom, fill: '#e6e6e6', stroke: '#222', 'stroke-width': 1 / zoom, style: `cursor:${cur[k]}-resize` }); r.dataset.handle = k; gUI.append(r); }
+  for (const [k, [px, py]] of Object.entries(pts)) { const r = sv('rect', { x: px - 4 / zoom, y: py - 4 / zoom, width: 8 / zoom, height: 8 / zoom, fill: '#ffffff', stroke: '#0b57d0', 'stroke-width': 1.5 / zoom, style: `cursor:${cur[k]}-resize` }); r.dataset.handle = k; gUI.append(r); }
 }
 function renderStatus() {
   status.textContent = '';
-  status.append(h('span', { text: (fileName || 'Untitled') }), h('span', { class: 'grow' }), h('span', { text: `${doc.shapes.length} shapes, ${doc.edges.length} connectors` }), h('span', { text: Math.round(zoom * 100) + '%' }));
+  status.append(h('span', { text: fileName || 'Not saved yet' }), isDirty() ? h('span', { class: 'muted', text: 'Unsaved changes' }) : null, h('span', { class: 'grow' }), h('span', { text: `${doc.shapes.length} shapes, ${doc.edges.length} connectors` }), h('span', { text: Math.round(zoom * 100) + '%' }));
+  zoomPct.textContent = Math.round(zoom * 100) + '%';
 }
 function renderRight() {
+  const keep = right.scrollTop;
   right.textContent = '';
-  right.append(h('h3', { text: 'Diagram' }), h('label', { class: 'field' }, 'Title', h('input', { type: 'text', value: doc.title, oninput: (e) => { doc.title = e.target.value; } })));
+  right.append(phead('Details', 'right'));
   const items = [...sel].map((id) => doc.shapes.find((s) => s.id === id) || doc.edges.find((e) => e.id === id)).filter(Boolean);
-  if (!items.length) { right.append(h('h3', { text: 'Tips' }), h('div', { class: 'muted', text: 'Drag shapes from the left. Use Connector to draw lines between shapes. Double-click a shape to type text. Hold Space and drag to pan.' })); return; }
+  const canvasSec = () => right.append(h('h3', { text: 'Canvas' }),
+    h('label', { class: 'row chk' }, h('input', { type: 'checkbox', checked: grid, onchange: (e) => { grid = e.target.checked; render(); } }), 'Show grid'),
+    h('label', { class: 'row chk' }, h('input', { type: 'checkbox', checked: snap, onchange: (e) => { snap = e.target.checked; } }), 'Snap to grid'));
+  if (!items.length) {
+    right.append(h('div', { class: 'pnote', text: 'Select a shape or connector to change it.' }), h('h3', { text: 'Tips' }),
+      h('ul', { class: 'tips' }, ['Click or drag a shape from the left to add it.', 'Use Connector to draw lines between shapes.', 'Double-click a shape to type text.', 'Hold Space and drag to pan.'].map((t) => h('li', { text: t }))));
+    canvasSec(); right.scrollTop = keep; return;
+  }
   const shapes = items.filter((i) => i.type), edges = items.filter((i) => i.from);
+  right.append(h('div', { class: 'pnote', text: items.length === 1 ? (shapes.length ? 'One shape selected' : 'One connector selected') : items.length + ' items selected' }));
   if (shapes.length) {
     right.append(h('h3', { text: 'Fill' }));
-    right.append(h('div', { class: 'swatches' }, FILLS.map((c) => h('button', { style: `background:${c}`, onclick: () => { commit(); shapes.forEach((s) => (s.fill = c)); style.fill = c; render(); } }))));
-    right.append(h('h3', { text: 'Outline' }), h('div', { class: 'swatches' }, ['#3a3a3a', '#8a8a8a', '#d0d0d0', '#ffffff'].map((c) => h('button', { style: `background:${c}`, onclick: () => { commit(); shapes.forEach((s) => (s.stroke = c)); render(); } }))));
-    const fs = h('input', { type: 'range', min: 8, max: 48, value: shapes[0].fs, oninput: () => { shapes.forEach((s) => (s.fs = +fs.value)); render(); }, onchange: () => {} });
-    fs.addEventListener('pointerdown', commit);
+    right.append(h('div', { class: 'swatches' }, FILLS.map((c) => h('button', { style: `background:${c}`, title: 'Fill ' + c, 'aria-label': 'Fill ' + c, class: shapes.every((s) => s.fill === c) ? 'on' : '', onclick: () => { edit(() => shapes.forEach((s) => (s.fill = c))); style.fill = c; } }))));
+    right.append(h('h3', { text: 'Outline' }), h('div', { class: 'swatches' }, ['#3a3a3a', '#8a8a8a', '#d0d0d0', '#ffffff'].map((c) => h('button', { style: `background:${c}`, title: 'Outline ' + c, 'aria-label': 'Outline ' + c, class: shapes.every((s) => s.stroke === c) ? 'on' : '', onclick: () => edit(() => shapes.forEach((s) => (s.stroke = c))) }))));
+    // one undo step per drag (or per key press); the panel is not rebuilt while the slider moves
+    let fsBefore = null;
+    const fs = h('input', { type: 'range', min: 8, max: 48, value: shapes[0].fs, 'aria-label': 'Text size',
+      oninput: () => { if (fsBefore === null) fsBefore = snapshot(); shapes.forEach((s) => (s.fs = +fs.value)); render(true); },
+      onchange: () => { if (fsBefore !== null && snapshot() !== fsBefore) commit(fsBefore); fsBefore = null; } });
     right.append(h('h3', { text: 'Text size' }), fs);
     right.append(h('h3', { text: 'Size' }), h('div', { class: 'row' }, numField('W', shapes[0].w, (v) => shapes.forEach((s) => (s.w = v))), numField('H', shapes[0].h, (v) => shapes.forEach((s) => (s.h = v)))));
-    right.append(h('h3', { text: 'Align' }), h('div', { class: 'ptools', style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px' }, ['Left', 'Center', 'Right', 'Top', 'Middle', 'Bottom'].map((a) => btn(a, () => align(a.toLowerCase())))), h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px' }, btn('Distribute H', () => distribute('x')), btn('Distribute V', () => distribute('y'))));
+    right.append(h('h3', { text: 'Align' }), h('div', { class: 'pgrid3' }, ['Left', 'Center', 'Right', 'Top', 'Middle', 'Bottom'].map((a) => btn(a, () => align(a.toLowerCase()), 'tonal'))), h('div', { class: 'pgrid2' }, btn('Distribute H', () => distribute('x'), 'tonal'), btn('Distribute V', () => distribute('y'), 'tonal')));
   }
   if (edges.length) {
     right.append(h('h3', { text: 'Connector' }),
-      h('div', { class: 'col' }, btn('Straight / Elbow', () => { commit(); edges.forEach((e) => (e.kind = e.kind === 'ortho' ? 'line' : 'ortho')); render(); }), btn('Dashed', () => { commit(); edges.forEach((e) => (e.dash = !e.dash)); render(); }), btn('Arrow on/off', () => { commit(); edges.forEach((e) => (e.arrow = e.arrow === 'none' ? 'end' : 'none')); render(); }), btn('Edit label', () => editLabel(edges[0]))));
+      h('div', { class: 'col' }, btn('Straight / Elbow', () => edit(() => edges.forEach((e) => (e.kind = e.kind === 'ortho' ? 'line' : 'ortho'))), 'tonal'), btn('Dashed', () => edit(() => edges.forEach((e) => (e.dash = !e.dash))), 'tonal'), btn('Arrow on/off', () => edit(() => edges.forEach((e) => (e.arrow = e.arrow === 'none' ? 'end' : 'none'))), 'tonal'), btn('Edit label', () => editLabel(edges[0]), 'tonal')));
   }
+  canvasSec(); right.scrollTop = keep;
 }
-function numField(label, val, set) { const i = h('input', { type: 'number', value: Math.round(val), style: 'width:70px', onchange: () => { commit(); set(Math.max(10, +i.value || 10)); render(); } }); return h('label', { class: 'field' }, label, i); }
+const SIZE_MIN = 10, SIZE_MAX = 10000;
+// a size box: a number from 10 to 10000; anything else puts the old value back
+function numField(label, val, set) { const i = h('input', { type: 'number', min: SIZE_MIN, max: SIZE_MAX, value: Math.round(val), 'data-orig': String(Math.round(val)), style: 'width:70px', onchange: () => { const v = Math.round(+i.value); if (i.value.trim() === '' || !isFinite(v)) { render(); return; } edit(() => set(clamp(v, SIZE_MIN, SIZE_MAX))); } }); return h('label', { class: 'field' }, label, i); }
 
 // ---------- editing ----------
 function addShape(type, x, y) {
@@ -281,37 +443,46 @@ function addShape(type, x, y) {
   if (type === 'class') s.text = 'ClassName'; if (type === 'state') s.text = 'State'; if (type === 'lifeline') s.text = 'Object'; if (type === 'package') s.text = 'package'; if (type === 'interface') s.text = '<<interface>>';
   doc.shapes.push(s); sel = new Set([s.id]); render();
 }
-function del() { if (!sel.size) return; commit(); doc.shapes = doc.shapes.filter((s) => !sel.has(s.id)); const ids = new Set(doc.shapes.map((s) => s.id)); doc.edges = doc.edges.filter((e) => !sel.has(e.id) && ids.has(e.from) && ids.has(e.to)); sel.clear(); render(); }
-function copy() { const ss = doc.shapes.filter((s) => sel.has(s.id)); if (!ss.length) return; const ids = new Set(ss.map((s) => s.id)); clip = JSON.stringify({ shapes: ss, edges: doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) }); toast('Copied'); }
-function paste(offset = 30) {
+function del() { if (!sel.size) return; edit(() => { doc.shapes = doc.shapes.filter((s) => !sel.has(s.id)); const ids = new Set(doc.shapes.map((s) => s.id)); doc.edges = doc.edges.filter((e) => !sel.has(e.id) && ids.has(e.from) && ids.has(e.to)); sel.clear(); }); }
+let pasteN = 0; // each Paste of the same copy lands a little further on, so copies do not pile up
+function copy(quiet) { const ss = doc.shapes.filter((s) => sel.has(s.id)); if (!ss.length) return; const ids = new Set(ss.map((s) => s.id)); clip = JSON.stringify({ shapes: ss, edges: doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) }); pasteN = 0; refreshSel(); if (!quiet) toast('Copied'); }
+function paste(offset) {
   if (!clip) return; const c = JSON.parse(clip); const map = {}; commit(); sel.clear();
+  if (offset === undefined) { pasteN++; offset = 30 * pasteN; }
   for (const s of c.shapes) { const id = uid(); map[s.id] = id; doc.shapes.push({ ...s, id, x: s.x + offset, y: s.y + offset }); sel.add(id); }
   for (const e of c.edges) doc.edges.push({ ...e, id: uid(), from: map[e.from], to: map[e.to] });
   render();
 }
-function dupe() { copy(); paste(); }
-function order(dir) { const ss = doc.shapes.filter((s) => sel.has(s.id)); if (!ss.length) return; commit(); const rest = doc.shapes.filter((s) => !sel.has(s.id)); doc.shapes = dir > 0 ? [...rest, ...ss] : [...ss, ...rest]; render(); }
+// Duplicate does not touch what Copy put on the clipboard
+function dupe() { if (!doc.shapes.some((s) => sel.has(s.id))) return; const keep = clip, n = pasteN; copy(true); paste(30); clip = keep; pasteN = n; refreshSel(); }
+function order(dir) { const ss = doc.shapes.filter((s) => sel.has(s.id)); if (!ss.length) return; edit(() => { const rest = doc.shapes.filter((s) => !sel.has(s.id)); doc.shapes = dir > 0 ? [...rest, ...ss] : [...ss, ...rest]; }); }
 function align(a) {
-  const ss = doc.shapes.filter((s) => sel.has(s.id)); if (ss.length < 2) return; commit(); const b = bounds(ss);
+  const ss = doc.shapes.filter((s) => sel.has(s.id)); if (ss.length < 2) return; const before = snapshot(); const b = bounds(ss);
   for (const s of ss) { if (a === 'left') s.x = b.x; else if (a === 'right') s.x = b.x + b.w - s.w; else if (a === 'center') s.x = b.x + (b.w - s.w) / 2; else if (a === 'top') s.y = b.y; else if (a === 'bottom') s.y = b.y + b.h - s.h; else if (a === 'middle') s.y = b.y + (b.h - s.h) / 2; }
-  render();
+  if (snapshot() !== before) commit(before); render();
 }
 function distribute(axis) {
-  const ss = doc.shapes.filter((s) => sel.has(s.id)).sort((a, b) => a[axis] - b[axis]); if (ss.length < 3) return; commit();
+  const ss = doc.shapes.filter((s) => sel.has(s.id)).sort((a, b) => a[axis] - b[axis]); if (ss.length < 3) return; const before = snapshot();
   const size = axis === 'x' ? 'w' : 'h'; const first = ss[0][axis], last = ss[ss.length - 1][axis] + ss[ss.length - 1][size];
   const total = ss.reduce((t, s) => t + s[size], 0); const gap = (last - first - total) / (ss.length - 1); let pos = first;
   for (const s of ss) { s[axis] = pos; pos += s[size] + gap; }
-  render();
+  if (snapshot() !== before) commit(before); render();
 }
+// closes a dialog and gives focus back to the control that opened it (if it is still on the page)
+function dlgCloser(back) { const opener = document.activeElement; return () => { back.remove(); if (opener && opener !== document.body && opener.isConnected) opener.focus(); }; }
 function editText(s) {
-  const ta = h('textarea', { rows: 4, style: 'width:300px' }); ta.value = s.text;
-  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal' }, h('h2', { text: 'Shape text' }), ta, h('div', { class: 'row', style: 'justify-content:flex-end' }, btn('Cancel', () => back.remove()), btn('OK', () => { commit(); s.text = ta.value; back.remove(); render(); }, 'primary'))));
-  document.body.append(back); ta.focus(); ta.select();
+  const ta = h('textarea', { rows: 4, style: 'width:300px' }); ta.value = s.text; ta.dataset.orig = ta.value;
+  const ok = () => { close(); edit(() => { s.text = ta.value; }); };
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok(); } });
+  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Shape text' }, h('h2', { text: 'Shape text' }), ta, h('div', { class: 'msub', text: 'Ctrl+Enter to finish.' }), h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', ok, 'primary'))));
+  const close = dlgCloser(back); document.body.append(back); ta.focus(); ta.select();
 }
 function editLabel(e) {
-  const i = h('input', { type: 'text', value: e.label || '', style: 'width:260px' });
-  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal' }, h('h2', { text: 'Connector label' }), i, h('div', { class: 'row', style: 'justify-content:flex-end' }, btn('Cancel', () => back.remove()), btn('OK', () => { commit(); e.label = i.value; back.remove(); render(); }, 'primary'))));
-  document.body.append(back); i.focus();
+  const i = h('input', { type: 'text', value: e.label || '', style: 'width:260px' }); i.dataset.orig = i.value;
+  const ok = () => { close(); edit(() => { e.label = i.value.trim() ? i.value : ''; }); };
+  i.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); ok(); } });
+  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Connector label' }, h('h2', { text: 'Connector label' }), i, h('div', { class: 'row mact' }, btn('Cancel', () => close()), btn('OK', ok, 'primary'))));
+  const close = dlgCloser(back); document.body.append(back); i.focus(); i.select();
 }
 
 // ---------- pointer interaction ----------
@@ -321,7 +492,8 @@ svg.addEventListener('pointerdown', (ev) => {
   const p = toWorld(ev);
   const hd = ev.target.dataset.handle;
   const node = ev.target.closest('[data-id]');
-  if (hd) { const s = doc.shapes.find((x) => sel.has(x.id)); commit(); drag = { mode: 'resize', hd, s, o: { ...s }, p }; svg.setPointerCapture(ev.pointerId); return; }
+  // move and resize record their undo step only once the pointer really moves (a plain click changes nothing)
+  if (hd) { const s = doc.shapes.find((x) => sel.has(x.id)); drag = { mode: 'resize', hd, s, o: { ...s }, p, cx: ev.clientX, cy: ev.clientY, before: snapshot(), moved: false }; svg.setPointerCapture(ev.pointerId); return; }
   if (tool === 'connect') {
     const from = node && node.dataset.kind === 'shape' ? node.dataset.id : null;
     if (!from) return;
@@ -335,10 +507,10 @@ svg.addEventListener('pointerdown', (ev) => {
     render();
     const moving = doc.shapes.filter((s) => sel.has(s.id));
     if (!moving.length) return;
-    commit(); drag = { mode: 'move', p, orig: moving.map((s) => ({ s, x: s.x, y: s.y })) }; svg.setPointerCapture(ev.pointerId);
+    drag = { mode: 'move', p, orig: moving.map((s) => ({ s, x: s.x, y: s.y })), cx: ev.clientX, cy: ev.clientY, before: snapshot(), moved: false }; svg.setPointerCapture(ev.pointerId);
   } else {
     if (!ev.shiftKey) sel.clear();
-    const r = sv('rect', { fill: 'rgba(200,200,200,.12)', stroke: '#bdbdbd', 'stroke-dasharray': '4 3' }); gUI.append(r);
+    const r = sv('rect', { fill: 'rgba(168,199,250,.12)', stroke: '#a8c7fa', 'stroke-dasharray': '4 3' }); gUI.append(r);
     drag = { mode: 'marquee', p, r, add: ev.shiftKey }; svg.setPointerCapture(ev.pointerId); render();
     gUI.append(r);
   }
@@ -347,13 +519,15 @@ svg.addEventListener('pointermove', (ev) => {
   if (!drag) return;
   if (drag.mode === 'pan') { panX = drag.px + ev.clientX - drag.sx; panY = drag.py + ev.clientY - drag.sy; applyView(); return; }
   const p = toWorld(ev);
+  if ((drag.mode === 'move' || drag.mode === 'resize') && !drag.moved) { if (Math.hypot(ev.clientX - drag.cx, ev.clientY - drag.cy) <= 3) return; drag.moved = true; }
   if (drag.mode === 'move') { const dx = p.x - drag.p.x, dy = p.y - drag.p.y; for (const o of drag.orig) { o.s.x = sn(o.x + dx); o.s.y = sn(o.y + dy); } renderLive(); }
   else if (drag.mode === 'resize') {
     const { s, o, hd } = drag; const dx = p.x - drag.p.x, dy = p.y - drag.p.y;
     let { x, y, w, h: hh } = o;
-    if (hd.includes('e')) w = Math.max(20, sn(o.w + dx)); if (hd.includes('s')) hh = Math.max(20, sn(o.h + dy));
-    if (hd.includes('w')) { const nx = sn(o.x + dx); w = Math.max(20, o.w + (o.x - nx)); x = o.x + o.w - w; }
-    if (hd.includes('n')) { const ny = sn(o.y + dy); hh = Math.max(20, o.h + (o.y - ny)); y = o.y + o.h - hh; }
+    const lim = (v) => clamp(v, 20, SIZE_MAX);
+    if (hd.includes('e')) w = lim(sn(o.w + dx)); if (hd.includes('s')) hh = lim(sn(o.h + dy));
+    if (hd.includes('w')) { const nx = sn(o.x + dx); w = lim(o.w + (o.x - nx)); x = o.x + o.w - w; }
+    if (hd.includes('n')) { const ny = sn(o.y + dy); hh = lim(o.h + (o.y - ny)); y = o.y + o.h - hh; }
     Object.assign(s, { x, y, w, h: hh }); renderLive();
   } else if (drag.mode === 'connect') {
     const a = doc.shapes.find((s) => s.id === drag.from); const c = centerOf(a);
@@ -363,13 +537,20 @@ svg.addEventListener('pointermove', (ev) => {
     drag.r.setAttribute('x', x); drag.r.setAttribute('y', y); drag.r.setAttribute('width', w); drag.r.setAttribute('height', hh); drag.box = { x, y, w, h: hh };
   }
 });
-function renderLive() { render(); }
+function renderLive() { render(true); }
+// finish a move or resize: keep one undo step if anything changed
+// drop a move or resize that is still under way, putting the shapes back (used when Undo or Redo is pressed mid-drag)
+function cancelDrag() { const d = drag; if (!d) return; drag = null; if ((d.mode === 'move' || d.mode === 'resize') && d.moved) doc = JSON.parse(d.before); if (d.line) d.line.remove(); if (d.r) d.r.remove(); stage.style.cursor = tool === 'pan' ? 'grab' : tool === 'connect' ? 'crosshair' : 'default'; }
+function endDrag() { const d = drag; if (!d) return; drag = null; if ((d.mode === 'move' || d.mode === 'resize') && d.moved && snapshot() !== d.before) commit(d.before); if (d.line) d.line.remove(); if (d.r) d.r.remove(); }
 svg.addEventListener('pointerup', (ev) => {
   if (!drag) return;
-  const d = drag; drag = null; stage.style.cursor = tool === 'pan' ? 'grab' : tool === 'connect' ? 'crosshair' : 'default';
+  const d = drag; endDrag(); stage.style.cursor = tool === 'pan' ? 'grab' : tool === 'connect' ? 'crosshair' : 'default';
   if (d.mode === 'connect') {
     d.line.remove(); const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('[data-id]');
-    if (t && t.dataset.kind === 'shape' && t.dataset.id !== d.from) { commit(); const e = { id: uid(), from: d.from, to: t.dataset.id, kind: 'line', label: '', arrow: 'end', stroke: '#9a9a9a' }; doc.edges.push(e); sel = new Set([e.id]); }
+    const to = t && t.dataset.kind === 'shape' ? t.dataset.id : null;
+    const dup = to && doc.edges.some((e) => e.from === d.from && e.to === to);
+    if (dup) toast('These shapes are already connected.');
+    if (to && to !== d.from && !dup) { commit(); const e = { id: uid(), from: d.from, to: t.dataset.id, kind: 'line', label: '', arrow: 'end', stroke: '#9a9a9a' }; doc.edges.push(e); sel = new Set([e.id]); }
     render();
   } else if (d.mode === 'marquee') {
     d.r.remove();
@@ -377,6 +558,8 @@ svg.addEventListener('pointerup', (ev) => {
     render();
   } else if (d.mode === 'move' || d.mode === 'resize') render();
 });
+svg.addEventListener('pointercancel', () => { if (drag) { endDrag(); render(); } });
+svg.addEventListener('lostpointercapture', () => { if (drag && (drag.mode === 'move' || drag.mode === 'resize')) { endDrag(); render(); } });
 svg.addEventListener('dblclick', (ev) => {
   const node = ev.target.closest('[data-id]'); if (!node) return;
   if (node.dataset.kind === 'shape') editText(doc.shapes.find((s) => s.id === node.dataset.id));
@@ -384,9 +567,12 @@ svg.addEventListener('dblclick', (ev) => {
 });
 svg.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = svg.getBoundingClientRect(); if (ev.ctrlKey || ev.metaKey) zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top); else { panX -= ev.deltaX; panY -= ev.deltaY; applyView(); } }, { passive: false });
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input,textarea')) return;
-  if (document.querySelector('.modal-back') || (!e.ctrlKey && !e.metaKey && e.target.matches('select,button,[contenteditable]'))) return;
-  const k = e.key.toLowerCase();
+  const k = keyOf(e);
+  // Save and Open also work from the size and search boxes (leaving the box applies what was typed)
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 's' || k === 'o') && e.target.matches('input,select') && !document.querySelector('.modal-back')) { e.preventDefault(); e.target.blur(); if (k === 's') saveDoc(); else openDoc(); return; }
+  if (e.target.matches('input,textarea,select,[contenteditable]') || document.querySelector('.modal-back') || fly) return;
+  // a button focused from the keyboard keeps Enter and Space for itself; every other shortcut still works
+  if (e.target.matches('button') && (e.key === 'Enter' || e.key === ' ') && e.target.matches(':focus-visible')) return;
   if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
   else if (e.key === 'Delete' || e.key === 'Backspace') del();
   else if (e.ctrlKey && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); }
@@ -398,44 +584,110 @@ document.addEventListener('keydown', (e) => {
   else if (e.ctrlKey && k === 's') { saveDoc(); e.preventDefault(); }
   else if (e.ctrlKey && k === 'o') { openDoc(); e.preventDefault(); }
   else if (e.key === 'Escape') { sel.clear(); setTool('select'); render(); }
-  else if (e.key.startsWith('Arrow') && sel.size) { const d = e.shiftKey ? 10 : 1; commit(); doc.shapes.filter((s) => sel.has(s.id)).forEach((s) => { if (e.key === 'ArrowLeft') s.x -= d; if (e.key === 'ArrowRight') s.x += d; if (e.key === 'ArrowUp') s.y -= d; if (e.key === 'ArrowDown') s.y += d; }); render(); e.preventDefault(); }
+  else if (e.key.startsWith('Arrow') && sel.size) { const d = e.shiftKey ? 10 : 1; const ss = doc.shapes.filter((s) => sel.has(s.id)); e.preventDefault(); if (!ss.length) return; if (!e.repeat) commit(); ss.forEach((s) => { if (e.key === 'ArrowLeft') s.x -= d; if (e.key === 'ArrowRight') s.x += d; if (e.key === 'ArrowUp') s.y -= d; if (e.key === 'ArrowDown') s.y += d; }); render(); e.preventDefault(); }
+  else if (e.key === '?') showHelp();
   else if (k === 'v') setTool('select'); else if (k === 'c' && !e.ctrlKey) setTool('connect'); else if (k === 'h') setTool('pan');
 });
 document.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
+window.addEventListener('blur', () => { spaceDown = false; });
+// Tab stays inside the top dialog
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return; const backs = document.querySelectorAll('.modal-back'); if (!backs.length) return;
+  const m = backs[backs.length - 1]; const f = [...m.querySelectorAll('button,input,textarea,select,[tabindex]:not([tabindex="-1"])')].filter((n) => !n.disabled && n.offsetParent !== null); if (!f.length) { e.preventDefault(); return; }
+  const i = f.indexOf(document.activeElement);
+  if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+}, true);
 
 // ---------- files ----------
-function newDoc() { if (doc.shapes.length && !confirm('Discard the current diagram?')) return; doc = { shapes: [], edges: [], title: 'Untitled' }; sel.clear(); undoS = []; savedSnap = snapshot(); redoS = []; fileName = ''; fit(); render(); }
+function newDoc() { if (!okToDiscard('Discard the unsaved changes in this diagram?')) return; doc = { shapes: [], edges: [], title: 'Untitled' }; sel.clear(); undoS = []; savedSnap = snapshot(); redoS = []; fileName = ''; fit(); render(); }
 async function openDoc() {
-  const f = (await window.host.openFiles({ filters: [['Chartout diagram', ['chartout', 'json']]] }))[0]; if (!f) return;
-  try { const d = JSON.parse(new TextDecoder().decode(f.data)); if (!Array.isArray(d.shapes) || !Array.isArray(d.edges)) throw new Error('Not a Chartout file'); doc = { title: String(d.title || 'Untitled'), shapes: d.shapes.map(cleanShape), edges: d.edges }; fileName = f.name; sel.clear(); undoS = []; savedSnap = snapshot(); fit(); render(); }
-  catch (e) { toast('Cannot open: ' + e.message); }
+  if (!okToDiscard('Discard the unsaved changes in this diagram?')) return;
+  let f; try { f = (await window.host.openFiles({ filters: [['Chartout diagram', ['chartout', 'json']]] }))[0]; } catch (e) { toast(cleanErr(e), 6000); return; }
+  if (!f) return;
+  let d; try { d = parseDoc(f.data); } catch (e) { toast(`Cannot open "${f.name}": ${e.message}`, 6000); return; }
+  const fixed = d.repaired; delete d.repaired;
+  // a repaired diagram counts as unsaved, so closing asks and saving writes the repaired version
+  doc = d; fileName = f.name; sel.clear(); undoS = []; redoS = []; savedSnap = fixed ? '' : snapshot(); fit(); render();
+  if (fixed) toast('Some items in this file were repaired.', 6000);
 }
-const cleanShape = (s) => ({ id: String(s.id), type: SHAPES.some((x) => x[0] === s.type) ? s.type : 'process', x: +s.x || 0, y: +s.y || 0, w: Math.max(10, +s.w || 100), h: Math.max(10, +s.h || 60), text: String(s.text || ''), fill: /^#[0-9a-f]{6}$/i.test(s.fill) ? s.fill : 'none', stroke: /^#[0-9a-f]{6}$/i.test(s.stroke) ? s.stroke : '#3a3a3a', fs: clamp(+s.fs || 14, 6, 96) });
+const HEX = /^#[0-9a-f]{6}$/i;
+const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : typeof v === 'string' && v.trim() && isFinite(+v) ? +v : d);
+const POS = 1e6;
+// text keeps its length, tabs, line breaks (\r\n too) and emoji; only invisible control characters go
+const plain = (t) => (typeof t === 'string' ? t : typeof t === 'number' ? String(t) : '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+const cleanShape = (s) => ({ id: String(s.id), type: SHAPES.some((x) => x[0] === s.type) ? s.type : 'process', x: clamp(num(s.x, 0), -POS, POS), y: clamp(num(s.y, 0), -POS, POS), w: clamp(num(s.w, 100), SIZE_MIN, POS), h: clamp(num(s.h, 60), SIZE_MIN, POS), text: plain(s.text), fill: HEX.test(s.fill) || s.fill === 'none' ? s.fill : '#ffffff', stroke: HEX.test(s.stroke) ? s.stroke : '#3a3a3a', fs: clamp(num(s.fs, 14), 6, 96) });
+// the cleaned object with its keys in the order the file had them, so an unchanged file saves back byte for byte
+const inOrder = (c, raw) => { const o = {}; for (const k of Object.keys(raw)) if (k in c) o[k] = c[k]; return Object.assign(o, c); };
+// read a .chartout file; anything odd in it is repaired or dropped (and .repaired is set), and a file that is not a diagram gives a plain message
+function parseDoc(bytes) {
+  const txt = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
+  if (!txt.trim()) throw new Error('the file is empty.');
+  let d; try { d = JSON.parse(txt); } catch { throw new Error('this is not a Chartout diagram, or the file is damaged.'); }
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !Array.isArray(d.shapes) || (d.edges !== undefined && !Array.isArray(d.edges))) throw new Error('this is not a Chartout diagram, or the file is damaged.');
+  const ids = new Set(); let repaired = false;
+  const keep = (c, raw) => { const o = inOrder(c, raw); if (JSON.stringify(o) !== JSON.stringify(raw)) repaired = true; return o; };
+  const shapes = [];
+  for (const s of d.shapes) {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) { repaired = true; continue; }
+    const c = cleanShape(s); if (s.id === undefined || s.id === null || s.id === '' || ids.has(c.id) || typeof s.id === 'object') c.id = uid(); ids.add(c.id); shapes.push(keep(c, s));
+  }
+  // two connectors between the same shapes are kept (older versions allowed them); only new ones are blocked while drawing
+  const eids = new Set(shapes.map((s) => s.id)), edges = [];
+  for (const e of d.edges || []) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) { repaired = true; continue; }
+    const from = String(e.from), to = String(e.to);
+    if (!ids.has(from) || !ids.has(to) || from === to) { repaired = true; continue; }
+    let id = String(e.id ?? ''); if (!id || typeof e.id === 'object' || eids.has(id)) id = uid(); eids.add(id);
+    const c = { id, from, to, kind: e.kind === 'ortho' ? 'ortho' : 'line', label: plain(e.label), arrow: e.arrow === 'none' ? 'none' : 'end', stroke: HEX.test(e.stroke) ? e.stroke : '#9a9a9a' };
+    if (typeof e.dash === 'boolean') c.dash = e.dash; edges.push(keep(c, e));
+  }
+  // the name is kept exactly as saved; only a name that is not text is replaced
+  let title = 'Untitled';
+  if (typeof d.title === 'string') { title = plain(d.title); if (title !== d.title) repaired = true; }
+  else if (d.title !== undefined) { title = plain(d.title).replace(/\n/g, ' ').trim() || 'Untitled'; repaired = true; }
+  const out = inOrder({ shapes, edges, title }, d);
+  if (repaired) Object.defineProperty(out, 'repaired', { value: true, configurable: true, enumerable: false });
+  return out;
+}
 async function saveDoc() {
-  const r = await window.host.saveFile({ name: (doc.title || 'diagram') + '.chartout', filters: [['Chartout diagram', ['chartout']]], data: new TextEncoder().encode(JSON.stringify(doc, null, 1)) });
-  if (r) { savedSnap = snapshot(); fileName = r.name; toast('Saved ' + r.name); renderStatus(); }
+  // what is written is the diagram as it is now; changes made while the Save dialog is open stay unsaved
+  const snap = snapshot(), data = new TextEncoder().encode(JSON.stringify(doc, null, 1));
+  let r; try { r = await window.host.saveFile({ name: (doc.title || 'diagram') + '.chartout', filters: [['Chartout diagram', ['chartout']]], data }); }
+  catch (e) { toast('Not saved. ' + cleanErr(e), 7000); renderStatus(); return; }
+  if (r) { savedSnap = snap; fileName = r.name; toast('Saved ' + r.name); renderStatus(); }
 }
 function exportSvgString() {
-  const b = doc.shapes.length ? bounds(doc.shapes) : { x: 0, y: 0, w: 200, h: 100 }; const pad = 30;
+  let b = doc.shapes.length ? bounds(doc.shapes) : { x: 0, y: 0, w: 200, h: 100 }; const pad = 30;
+  // labels below a shape (server, router...) and long text stick out of the shape box, so take what is really drawn too
+  if (doc.shapes.length) { const all = [b]; for (const g of [gShapes, gEdges]) { try { const r = g.getBBox(); if (r.width || r.height) all.push({ x: r.x, y: r.y, w: r.width, h: r.height }); } catch (_) {} }
+    const x0 = Math.min(...all.map((r) => r.x)), y0 = Math.min(...all.map((r) => r.y)); b = { x: x0, y: y0, w: Math.max(...all.map((r) => r.x + r.w)) - x0, h: Math.max(...all.map((r) => r.y + r.h)) - y0 }; }
   const root = sv('svg', { xmlns: NS, width: b.w + pad * 2, height: b.h + pad * 2, viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}` });
   root.append(sv('rect', { x: b.x - pad, y: b.y - pad, width: b.w + pad * 2, height: b.h + pad * 2, fill: '#ffffff' }));
   const d2 = defs.cloneNode(true); d2.querySelector('#gridp')?.remove(); root.append(d2);
-  const ge = gEdges.cloneNode(true); ge.querySelectorAll('path[stroke="transparent"]').forEach((n) => n.remove()); ge.querySelectorAll('rect[fill="#262626"]').forEach((n) => n.setAttribute('fill', '#ffffff')); ge.querySelectorAll('text').forEach((n) => n.setAttribute('fill', '#222')); ge.querySelectorAll('path[stroke="#ffffff"]').forEach((n) => n.setAttribute('stroke', '#555'));
-  ge.querySelectorAll('path[stroke="#9a9a9a"]').forEach((n) => n.setAttribute('stroke', '#555'));
+  const ge = gEdges.cloneNode(true); ge.querySelectorAll('path[stroke="transparent"]').forEach((n) => n.remove()); ge.querySelectorAll('rect[fill="#262626"]').forEach((n) => n.setAttribute('fill', '#ffffff')); ge.querySelectorAll('text').forEach((n) => n.setAttribute('fill', '#222')); ge.querySelectorAll('path[data-sel]').forEach((n) => { n.setAttribute('stroke', n.dataset.sel); n.setAttribute('stroke-width', 1.8); n.removeAttribute('data-sel'); });
+  ge.querySelectorAll('path[stroke="#9a9a9a"], path[stroke="#ffffff"]').forEach((n) => n.setAttribute('stroke', '#555'));
   root.append(ge);
-  const gs = gShapes.cloneNode(true); gs.querySelectorAll('rect[stroke-dasharray="4 3"]').forEach((n) => n.remove()); gs.querySelectorAll('text[fill="#e4e4e4"]').forEach((n) => n.setAttribute('fill', '#222'));
+  const gs = gShapes.cloneNode(true); gs.querySelectorAll('rect[data-sel]').forEach((n) => n.remove());
+  // a white outline would vanish on the white page
+  gs.querySelectorAll('[stroke="#ffffff"]').forEach((n) => n.setAttribute('stroke', '#555555'));
+  gs.querySelectorAll('text[fill="#e4e4e4"]').forEach((n) => n.setAttribute('fill', '#222'));
   root.append(gs);
   return { str: new XMLSerializer().serializeToString(root), w: b.w + pad * 2, h: b.h + pad * 2 };
 }
 async function exportImg(kind) {
   const { str, w, h: hh } = exportSvgString();
-  if (kind === 'svg') { const r = await window.host.saveFile({ name: (doc.title || 'diagram') + '.svg', filters: [['SVG', ['svg']]], data: new TextEncoder().encode(str) }); if (r) toast('Saved ' + r.name); return; }
-  const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str);
-  await img.decode();
-  const cv = document.createElement('canvas'); cv.width = w * 2; cv.height = hh * 2; const ctx = cv.getContext('2d'); ctx.scale(2, 2); ctx.drawImage(img, 0, 0, w, hh);
-  const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
-  const res = await window.host.saveFile({ name: (doc.title || 'diagram') + '.png', filters: [['PNG image', ['png']]], data: new Uint8Array(await blob.arrayBuffer()) });
-  if (res) toast('Saved ' + res.name);
+  try {
+    if (kind === 'svg') { const r = await window.host.saveFile({ name: (doc.title || 'diagram') + '.svg', filters: [['SVG', ['svg']]], data: new TextEncoder().encode(str) }); if (r) toast('Saved ' + r.name); return; }
+    const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str);
+    await img.decode();
+    // twice the size for sharpness, but a big diagram is scaled down so the picture stays within what a canvas can hold
+    const sc = Math.min(2, 16000 / w, 16000 / hh, Math.sqrt(100e6 / (w * hh)));
+    const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.floor(w * sc)); cv.height = Math.max(1, Math.floor(hh * sc)); const ctx = cv.getContext('2d'); ctx.scale(sc, sc); ctx.drawImage(img, 0, 0, w, hh);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    if (!blob) { toast('This diagram is too big for a PNG picture. Try SVG instead.', 6000); return; }
+    const res = await window.host.saveFile({ name: (doc.title || 'diagram') + '.png', filters: [['PNG image', ['png']]], data: new Uint8Array(await blob.arrayBuffer()) });
+    if (res) toast('Saved ' + res.name);
+  } catch (e) { toast('Not exported. ' + cleanErr(e), 7000); }
 }
 
 
@@ -459,17 +711,38 @@ function buildTemplate(t) {
   return { shapes, edges, title: t.name };
 }
 function openTemplates() {
-  const close = () => back.remove();
-  const grid = h('div', { style: 'display:grid;grid-template-columns:repeat(3,200px);gap:10px' });
+  if (document.querySelector('.modal-back.templates')) return;
+  let close;
+  const grid = h('div', { class: 'tgrid' });
   TEMPLATES.forEach((t) => {
     const d = buildTemplate(t); const b = bounds(d.shapes);
-    const pv = sv('svg', { viewBox: `${b.x - 10} ${b.y - 10} ${b.w + 20} ${b.h + 20}`, width: 180, height: 110, style: 'background:#1c1c1c;border-radius:4px' });
+    const pv = sv('svg', { viewBox: `${b.x - 10} ${b.y - 10} ${b.w + 20} ${b.h + 20}`, 'aria-hidden': 'true', preserveAspectRatio: 'xMidYMid meet' });
+    d.edges.forEach((e) => { const pd = edgePath(e, d.shapes); if (pd) pv.append(sv('path', { d: pd.d, fill: 'none', stroke: '#9a9a9a', 'stroke-width': 2, 'data-edge': '' })); });
     d.shapes.forEach((s) => { const prev = { ...s, text: '' }; pv.append(shapeEl(prev, true)); });
-    const card = h('div', { class: 'btn', style: 'display:flex;flex-direction:column;align-items:center;gap:6px;height:auto;padding:8px', onclick: () => { if (doc.shapes.length && !confirm('Replace the current diagram with this template?')) return; commit(); doc = d; sel.clear(); close(); render(); fit(); } }, pv, h('span', { text: t.name }));
+    const card = h('button', { class: 'tcard', title: 'Use the ' + t.name + ' template', onclick: () => { if (!okToDiscard('Discard the unsaved changes and use this template?')) return; commit(); doc = d; fileName = ''; sel.clear(); close(); render(); fit(); } },
+      h('div', { class: 'thumb' }, pv), h('div', { class: 'tname', text: t.name }), h('div', { class: 'tsub', text: d.shapes.length + ' shapes, ' + d.edges.length + ' connectors' }));
     grid.append(card);
   });
-  const back = h('div', { class: 'modal-back' }, h('div', { class: 'modal' }, h('h2', { text: 'Templates' }), grid, h('div', { class: 'row', style: 'justify-content:flex-end' }, btn('Close', close))));
-  document.body.append(back);
+  const back = h('div', { class: 'modal-back templates', onclick: (e) => { if (e.target === back) close(); } },
+    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Templates' }, h('h2', { text: 'Templates' }), h('div', { class: 'msub', text: 'Start from a ready-made diagram. It replaces the current one (Undo brings it back).' }), grid, h('div', { class: 'row mact' }, btn('Close', () => close()))));
+  close = dlgCloser(back); document.body.append(back);
+  grid.querySelector('.tcard').focus();
+}
+// ---------- help ----------
+const SHORTCUTS = [
+  ['Tools', [[['V'], 'Select'], [['C'], 'Connector'], [['H'], 'Hand (pan)'], [['Space'], 'Hold and drag to pan'], [['Esc'], 'Clear the selection']]],
+  ['Edit', [[['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Ctrl', 'C'], 'Copy'], [['Ctrl', 'V'], 'Paste'], [['Ctrl', 'D'], 'Duplicate'], [['Del'], 'Delete'], [['Ctrl', 'A'], 'Select all'], [['Arrows'], 'Move by 1 (Shift: 10)'], [['Shift', 'Click'], 'Add to the selection'], [['Double-click'], 'Edit text or label']]],
+  ['File and view', [[['Ctrl', 'S'], 'Save'], [['Ctrl', 'O'], 'Open'], [['Scroll'], 'Pan'], [['Ctrl', 'Scroll'], 'Zoom'], [['?'], 'This list']]],
+];
+function showHelp() {
+  if (document.querySelector('.modal-back.help')) return;
+  let close;
+  const keys = h('div', { class: 'keys' }, SHORTCUTS.map(([g, rows]) => h('div', { class: 'kgrp' }, h('h3', { text: g }),
+    rows.map(([ks, what]) => h('div', { class: 'krow' }, h('span', { class: 'kk' }, ks.map((k) => h('kbd', { text: k }))), h('span', { text: what }))))));
+  const back = h('div', { class: 'modal-back help', onclick: (e) => { if (e.target === back) close(); } },
+    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard shortcuts' }, h('h2', { text: 'Keyboard shortcuts' }), keys, h('div', { class: 'row mact' }, btn('Close', () => close(), 'primary'))));
+  close = dlgCloser(back); document.body.append(back);
+  back.querySelector('.mact .btn').focus();
 }
 
 // start with a small example so the canvas is not empty
@@ -485,6 +758,6 @@ render();
 setTimeout(fit, 30);
 window.addEventListener('resize', () => applyView());
 
-let savedSnap = null;
-setTimeout(() => { if (savedSnap === null) savedSnap = snapshot(); }, 0);
-window.addEventListener('beforeunload', (e) => { if (savedSnap !== null && snapshot() !== savedSnap) { e.preventDefault(); e.returnValue = ''; } });
+savedSnap = snapshot(); renderStatus();
+// main.js asks "Close without saving?" when this blocks the close
+window.addEventListener('beforeunload', (e) => { if (hasUnsaved()) { e.preventDefault(); e.returnValue = ''; } });

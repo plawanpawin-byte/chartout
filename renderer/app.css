@@ -1,1 +1,146 @@
-/* app styles */
+/* app styles: Google-style dark (NotebookLM / Gemini / AI Studio) on the Lookout kit tokens */
+:root{
+  --tonal:#004a77; --on-tonal:#c2e7ff;            /* Material 3 dark secondary container: selected and tonal states */
+  --hover:rgba(227,227,227,.08); --press:rgba(227,227,227,.12);
+  --canvas:#1a1b1c;                                  /* diagram canvas, a step under the panel surface */
+  --elev-2:0 1px 2px rgba(0,0,0,.3),0 2px 6px 2px rgba(0,0,0,.15);
+  --elev-3:0 1px 3px rgba(0,0,0,.3),0 4px 8px 3px rgba(0,0,0,.15);
+}
+
+/* ---------- top app bar ---------- */
+.app>.toolbar{--h:40px;min-height:56px;padding:8px 16px 8px 12px;gap:4px;border:0;background:var(--bg)}
+.app>.toolbar>.sep{display:none}
+.app>.toolbar .brand{gap:10px;padding:0 8px 0 6px;font-size:20px;font-weight:400;letter-spacing:0;flex:none}
+.app>.toolbar .brand img{width:28px;height:28px;border-radius:8px}
+.app>.toolbar .btn{font-size:14px;font-weight:500;gap:8px;flex:none}
+.app>.toolbar .btn .ic{width:20px;height:20px;opacity:1}
+.app>.toolbar .btn:not(.primary):not(.on){color:var(--text-2)}
+.app>.toolbar .btn:not(.primary):not(.on):hover{background:var(--hover);color:var(--text)}
+.app>.toolbar .btn.primary{padding:0 20px 0 16px;border-radius:20px}
+.app>.toolbar:not(.c3) .btn.primary{margin-left:4px}
+.app>.toolbar.c3 .btn.primary{padding:0;border-radius:50%}
+.btn.primary.tonal,.btn.tonal{background:var(--tonal);color:var(--on-tonal);border-color:transparent}
+.btn.primary.tonal:hover,.btn.tonal:hover{background:#0a5a8f;border-color:transparent}
+.toolbar input.tbtitle{width:260px;min-width:96px;flex:0 1 260px;height:40px;margin-left:4px;padding:0 12px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--text);font:inherit;font-size:16px;text-align:left;text-overflow:ellipsis}
+.toolbar input.tbtitle:hover{background:var(--bg-3)}
+.toolbar input.tbtitle:focus{background:var(--bg-3);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);outline:0}
+.toolbar.c2 input.tbtitle{width:150px}
+
+/* ---------- editor surfaces: panels and canvas are separate rounded containers on --bg ---------- */
+.app>.main{padding:0 8px;background:var(--bg)}
+.app .sidebar{background:var(--bg-2);border:0;border-radius:16px;padding:0 12px 12px;--h:32px;scrollbar-width:thin;scrollbar-color:var(--bg-4) transparent}
+.app .sidebar h3{height:auto;margin:20px 0 8px;padding:0 4px;background:none;border:0;color:var(--text-2);font-size:12px;font-weight:500;letter-spacing:.1px}
+.phead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:4px;height:56px;margin:0 -12px 4px;padding:0 8px 0 20px;background:var(--bg-2);border-radius:16px 16px 0 0}
+.ptitle{flex:1;min-width:0;font-size:16px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbtn,.zk{display:flex;align-items:center;justify-content:center;flex:none;padding:0;border:0;background:transparent;color:var(--text-2);cursor:pointer}
+.pbtn{width:40px;height:40px;border-radius:50%}
+.pbtn:hover,.zk:hover{background:var(--hover);color:var(--text)}
+.pbtn:active,.zk:active{background:var(--press)}
+.app .stage{border-radius:16px;background:var(--canvas)}
+/* grips become the 8px gutters; a thin blue line shows on hover while resizing */
+.app .grip{flex:0 0 8px;width:8px;margin:0}
+.app .grip::after{left:3px;width:2px;top:16px;bottom:16px;border-radius:2px}
+.app .grip:hover::after,.app .grip.drag::after{left:3px;width:2px;background:var(--accent)}
+.app .grip.collapsed{flex:0 0 20px;width:20px;margin:0;background:transparent;border:0;border-radius:10px;cursor:pointer}
+.app .grip.collapsed::after{left:8px;top:calc(50% - 20px);bottom:auto;height:40px;width:4px;background:var(--line-3);border-radius:2px}
+.app .grip.collapsed:hover{background:var(--bg-2)}
+.app .grip.collapsed:hover::after{background:var(--accent)}
+/* quiet status line */
+.app>.status{height:28px;padding:0 20px;border:0;background:var(--bg);color:var(--text-3);font-size:12px}
+.wbs{bottom:5px;background:var(--bg)}
+.app .sidebar .btn:not(.primary):not(.on):not(.tonal){background:var(--bg-3)}
+.app .sidebar .btn:not(.primary):not(.on):not(.tonal):hover{background:var(--bg-4)}
+
+/* ---------- left panel: shape search, library chips, shape cards ---------- */
+.sbox{display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 12px;margin:0 0 10px;background:var(--bg-3);border:1px solid transparent;border-radius:20px;color:var(--text-3);cursor:text}
+.sbox:hover{background:var(--bg-4)}
+.sbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:var(--bg-3)}
+.sbox svg{flex:none}
+.sbox input[type=search],.sbox input[type=search]:hover,.sbox input[type=search]:focus{flex:1;min-width:0;height:36px;padding:0;background:transparent;border:0;box-shadow:none;outline:0;color:var(--text);font:inherit;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.chip{height:32px;padding:0 12px;border:1px solid var(--line-3);border-radius:8px;background:transparent;color:var(--text-2);font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+.chip:hover{background:var(--hover);color:var(--text)}
+.chip.on,.chip.on:hover{background:var(--tonal);border-color:transparent;color:var(--on-tonal)}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px;margin-top:8px}
+.scard{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px 6px;min-width:0;border:0;border-radius:12px;background:var(--bg-3);color:var(--text-2);font:inherit;font-size:12px;cursor:grab}
+.scard:hover{background:var(--bg-4);color:var(--text)}
+.scard:active{background:var(--press);cursor:grabbing}
+.scard span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard svg{flex:none}
+.shapes h3:first-child{margin-top:12px}
+.sempty{padding:16px 4px;font-size:13px}
+
+/* ---------- right panel ---------- */
+.pnote{padding:0 4px;color:var(--text-3);font-size:13px}
+.tips{margin:0;padding:0 4px 0 20px;color:var(--text-2);font-size:13px;line-height:1.5}
+.tips li{margin-bottom:4px}
+.pgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.pgrid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.app .sidebar .pgrid3 .btn,.app .sidebar .pgrid2 .btn{padding:0 6px;min-width:0;font-size:12px;border-radius:16px}
+.app .sidebar .col{gap:6px}
+.app .sidebar .col .btn{border-radius:16px;justify-content:flex-start}
+.app .sidebar .swatches{gap:8px}
+.app .sidebar .swatches button{width:24px;height:24px}
+label.chk{gap:10px;min-height:32px;padding:0 4px;color:var(--text-2);font-size:13px;cursor:pointer}
+label.chk input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+.app .sidebar input[type=range]{width:100%;accent-color:var(--accent)}
+
+/* ---------- inputs: filled, tonal, clear focus ring (Material 3 dark) ---------- */
+input[type=text],input[type=number],input[type=search],select,textarea{background:var(--bg-3);border:1px solid transparent;border-radius:8px}
+input[type=text]:hover,input[type=number]:hover,input[type=search]:hover,select:hover,textarea:hover{background:var(--bg-4)}
+input[type=text]:focus,input[type=number]:focus,input[type=search]:focus,select:focus,textarea:focus{background:var(--bg-3);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);outline:0}
+.app label.field{gap:6px;color:var(--text-3)}
+.modal textarea,.modal input[type=text]{padding:10px 12px;font:inherit;font-size:14px;color:var(--text)}
+
+/* ---------- floating toolbars on the canvas ---------- */
+.dock,.selbar{position:absolute;left:50%;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:4px;padding:6px;background:var(--bg-3);border:0;border-radius:24px;box-shadow:var(--elev-3);max-width:calc(100% - 24px);overflow-x:auto;scrollbar-width:none}
+.dock{bottom:16px}
+.selbar{top:12px;padding:4px;border-radius:22px;box-shadow:var(--elev-2)}
+.dock::-webkit-scrollbar,.selbar::-webkit-scrollbar{height:0}
+.dg{display:flex;align-items:center;gap:2px;padding-right:4px;border-right:1px solid rgba(227,227,227,.1)}
+.dg:last-child{border-right:0;padding-right:0}
+.dk{width:36px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;border:0;border-radius:18px;background:transparent;color:var(--text-2);cursor:pointer;padding:0}
+.dk:hover{background:var(--hover);color:var(--text)}
+.dk:active{background:var(--press)}
+.dk.on,.dk.on:hover{background:var(--tonal);color:var(--on-tonal)}
+.dk:disabled,.dk:disabled:hover{background:transparent;color:var(--text-3);opacity:.45;cursor:default}
+.zk{width:36px;height:36px;border-radius:18px}
+.zk.zpct{width:auto;min-width:56px;padding:0 8px;font:inherit;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--text)}
+
+/* ---------- menus (.fly): 12px, elevated, 44px rows ---------- */
+.fly{z-index:70;min-width:200px;padding:8px 0;background:var(--bg-3);border:0;border-radius:12px;box-shadow:var(--elev-2);display:flex;flex-direction:column}
+.fi{display:flex;align-items:center;gap:12px;width:100%;height:44px;padding:0 20px 0 16px;border:0;border-radius:0;background:transparent;color:var(--text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.fi svg{color:var(--text-2);flex:none}
+.fi:hover{background:var(--hover)}
+.fi:active{background:var(--press)}
+.fi:focus-visible,.fly.kb .fi:focus{background:var(--press);outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+.fi .fl{flex:1}
+.dk:focus-visible,.zk:focus-visible,.pbtn:focus-visible,.chip:focus-visible,.scard:focus-visible,.tcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- dialogs, toasts ---------- */
+.modal-back{background:rgba(0,0,0,.5)}
+.modal{background:var(--bg-2);border-radius:28px;padding:24px;gap:16px;box-shadow:var(--elev-3);max-width:90vw}
+.modal h2{font-size:24px;font-weight:400;line-height:32px}
+.modal h3{font-size:12px;font-weight:500;color:var(--text-3);margin:4px 0 6px}
+.modal .btn{--h:40px;padding:0 24px;font-size:14px;font-weight:500;border-radius:20px}
+.modal .btn:not(.primary){background:transparent;border-color:transparent;color:var(--accent)}
+.modal .btn:not(.primary):hover{background:rgba(168,199,250,.08)}
+.modal .btn>svg.ic{display:none}
+.modal.wide{width:min(880px,90vw)}
+.mact{justify-content:flex-end;gap:8px}
+.msub{margin-top:-8px;color:var(--text-3);font-size:14px}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 32px}
+.kgrp h3{font-size:14px;color:var(--accent);margin:0 0 8px}
+.krow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;font-size:14px;color:var(--text-2)}
+.krow>span:last-child{text-align:right}
+.kk{display:flex;gap:4px;flex:none}
+.kk kbd{font-family:inherit;font-size:12px;color:var(--text);background:var(--bg-4);border:0;border-radius:6px;padding:2px 8px;min-width:24px;text-align:center}
+.toast{bottom:96px;padding:14px 16px;border-radius:8px;font-size:14px;background:#e3e3e3;color:#1f1f1f;box-shadow:var(--elev-3)}
+/* templates: cards with previews */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+.tcard{display:flex;flex-direction:column;gap:2px;text-align:left;min-width:0;background:var(--bg-3);border:0;border-radius:16px;padding:8px 8px 14px;color:var(--text);font:inherit;cursor:pointer;transition:background .15s,box-shadow .15s}
+.tcard:hover{background:var(--bg-4);box-shadow:var(--elev-2)}
+.tcard .thumb{height:130px;border-radius:12px;background:var(--canvas);display:flex;align-items:center;justify-content:center;overflow:hidden;padding:12px}
+.tcard .thumb svg{width:100%;height:100%;display:block}
+.tname{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:10px 8px 0}
+.tsub{font-size:12px;color:var(--text-3);margin:0 8px}
